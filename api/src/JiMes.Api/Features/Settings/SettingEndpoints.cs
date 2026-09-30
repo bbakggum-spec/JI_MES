@@ -29,6 +29,12 @@ public static class SettingEndpoints
                 .Select(ToDto)))
             .RequirePermission(MenuKeys.SystemSetting, PermissionAction.Read);
 
+        // 웹 화면 동작용 설정 (키 → 유효값). 관리 권한 없이 로그인만으로 읽는다.
+        app.MapGet("/api/client-settings", (SettingsCache cache) =>
+                Results.Ok(SettingKeys.ClientVisible.ToDictionary(k => k, cache.GetString)))
+            .WithTags("Settings")
+            .RequireLogin();
+
         group.MapPut("/{key}", (string key, UpdateSettingRequest request, SettingChangeService service, CancellationToken ct) =>
                 service.ChangeAsync(key, request.Value ?? "", request.Reason, ct))
             .RequirePermission(MenuKeys.SystemSetting, PermissionAction.Update);

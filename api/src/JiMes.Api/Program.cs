@@ -90,6 +90,9 @@ var app = builder.Build();
 
 app.UseExceptionHandler();
 app.UseStatusCodePages();
+// 운영: 웹 빌드 결과(web → wwwroot)를 같은 출처로 제공. 개발은 Vite 개발 서버가 /api·/hubs 를 프록시
+app.UseDefaultFiles();
+app.UseStaticFiles();
 app.UseAuthentication();
 app.UseRateLimiter();
 app.UseAuthorization();
@@ -103,6 +106,8 @@ app.MapSettingEndpoints();
 app.MapCommonCodeEndpoints();
 app.MapAuditLogEndpoints();
 app.MapHub<EventsHub>(EventsHub.Route).RequireLogin();
+// SPA 라우팅: /api·/hubs 가 아닌 경로는 index.html (없는 API 는 404 유지)
+app.MapFallbackToFile("{*path:nonfile:regex(^(?!api/|hubs/).*$)}", "index.html").AllowAnonymous();
 
 // 시작 시 1회: 설정·공통코드 캐시 적재 → 최초 관리자 (사용자가 없을 때만)
 await app.Services.GetRequiredService<SettingsCache>().ReloadAsync();

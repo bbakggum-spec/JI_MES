@@ -10,4 +10,16 @@ public static class SettingKeys
     public const string AuthPermissionCacheSec = "auth.permission_cache_sec";
     public const string AuthLoginMaxAttemptsPerMin = "auth.login_max_attempts_per_min";
     public const string AuthPasswordMinLength = "auth.password_min_length";
+    public const string ScheduleDayStartTime = "schedule.day_start_time";
+    public const string ScheduleRefreshIntervalSec = "schedule.refresh_interval_sec";
+
+    /// <summary>
+    /// 로그인 사용자 누구나 읽을 수 있는 설정 (GET /api/client-settings). 웹 화면 동작에 필요한 값만 둔다.
+    /// 경로·세율 등 관리 정보는 넣지 않는다.
+    /// </summary>
+    public static readonly IReadOnlyList<string> ClientVisible =
+    [
+        ScheduleDayStartTime,
+        ScheduleRefreshIntervalSec,
+    ];
 }

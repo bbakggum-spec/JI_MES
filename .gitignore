@@ -28,3 +28,6 @@ Thumbs.db
 # 임시 출력물
 *.tmp
 output/
+
+# 웹 빌드 결과 (web → API wwwroot)
+api/src/JiMes.Api/wwwroot/

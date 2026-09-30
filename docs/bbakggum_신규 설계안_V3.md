@@ -1,4 +1,4 @@
-# bbakggum DB 구조개편 설계안 V3.9
+# bbakggum DB 구조개편 설계안 V3.10
 
 | 항목 | 내용 |
 |-|-|
@@ -20,6 +20,7 @@
 | V3.5 | 2026-09-30 | **모든 출력물 = 사용자 엑셀 양식 등록 방식**, 출력 용도 **사용자 확장**(`print_purpose`), 양식 파일 **DB 버전 보관**, 치환자 사전(`print_field`), 출력 이력(`print_log`), **구현 시 주의사항**(§15: 스케줄·진행현황, 엑셀 양식 출력 — 기존 소스 분석), 기존 DB 보존 + 신규 구축 원칙 명시 |
 | V3.6 | 2026-09-30 | 양식 등록 방식 **2가지**: EXCEL(사용자 수정 양식) + **FIXED**(코드 고정 레이아웃 — 거래명세표 등 구 PrintDoc 7종, 레이아웃 옵션은 관리자 조정), **하드코딩 → 관리자 설정**(§15.4, `system_setting` 확장·초기값, 로직 참조 공통코드, 단말별 프린터 `workstation_print_setting`, 도장 이미지 DB 보관) |
 | V3.8 | 2026-09-30 | **1단계 기존 폼 분석 반영** (`docs/legacy_forms/`): 입고번호 = 스캔 수주번호(`order_item_no`), 수주 행 요구사항 Snapshot·우선순위·별도관리·고객 작업지시번호, 품목 단가 적용 구분(EA/KG/CHARGE), 설비당 투입 중 작업 1건, 한 LOT에 같은 수주 1회, 관리항목 템플릿(`step_template_condition`), 검사구분(입고/공정/출하)·재검사·**검사 결과 공통 적용**, 부적합 처리구분(재처리/출하/선별/보류/폐기/반송), 출하 시험편·거래처 Snapshot·전표 단위 마감 상태(미마감/마감/이월), 공통 첨부(`attachment`), 설정·공통코드 추가. 배정 병합 시 최대 작업시간, 지연 시 뒤 배정 계획시각 자동 이동 |
+| V3.10 | 2026-09-30 | **3단계 웹 골격** (§19): React + Vite + Ant Design, 쿠키 세션·권한 메뉴(DB 메뉴 트리)·SignalR 캐시 무효화·대시보드 틀·시스템 화면 3종(관리자 설정·공통코드·변경 이력). API: 클라이언트 설정 조회 `GET /api/client-settings`, 운영 시 웹 정적 파일 제공(같은 출처) |
 | V3.9 | 2026-09-30 | **2단계 API 골격** (§18): 쿠키 인증·역할 합집합 권한(fail-closed)·감사·설정/공통코드 캐시·row_version·SignalR. DDL: 권한 초기 데이터(ADMIN 역할, 시스템 메뉴 트리 — §9.8), 설정 `auth.permission_cache_sec`·`auth.login_max_attempts_per_min`·`auth.password_min_length` 추가 |
 | V3.7 | 2026-09-30 | 고정 양식 6종 전체 **레이아웃 옵션 스키마·초기값** 확정(§15.3.1), 우선순위 표시명·색상 하드코딩 → 공통코드 `PRIORITY`, `sales_order.priority` 기본값 1(일반)로 수정 (기존 코드 기준 3 = 긴급) |
 
@@ -726,10 +727,46 @@ print_log                                발행 이력 (양식 버전, 대상, �
 | `GET /api/common-codes` · `PUT /api/common-codes/{id}` | 로그인 / `system.code` U |
 | `GET /api/audit-logs?tableName&recordId&appUserId&from&to&page&pageSize` | `system.audit` R |
 | `/hubs/events` (SignalR) | 로그인 |
+| `GET /api/client-settings` | 로그인 (`SettingKeys.ClientVisible` 키만 — 경로·세율 등 관리 정보 제외) |
 | `/openapi/v1.json` | 개발 환경만 |
 
 ## 18.7 남은 일 (다음 단계에서)
 
 - 사용자·역할·메뉴 권한 관리 API (`system.user`, `system.role`) — 변경 시 `PermissionService.InvalidateAll()` 호출.
 - 운영 배포: Data Protection 키 저장 위치 지정(서버 재시작·다중 인스턴스 시 쿠키 유지), HTTPS, 파일 로그(`log.retention_days`).
-- 웹에 필요한 설정만 내려주는 조회 API (예: `schedule.refresh_interval_sec`, `schedule.day_start_time`) — 3단계 웹 골격과 함께.
+
+---
+
+# 19. 웹 골격 (3단계, V3.10)
+
+위치: `web/` — React 19 + TypeScript + Vite + **Ant Design 6**, react-router 8, TanStack Query, `@microsoft/signalr`, dayjs.
+
+## 19.1 실행 구성
+
+| 환경 | 방식 |
+|-|-|
+| 개발 | `npm run dev` (5173). Vite가 `/api`, `/hubs`(WebSocket)를 API(5080)로 프록시 → 같은 출처라 쿠키(SameSite=Strict) 그대로 동작 |
+| 운영 | `npm run build` → `api/src/JiMes.Api/wwwroot` (Git 제외). API가 정적 파일 + SPA 경로(`/api`·`/hubs` 제외 → `index.html`)를 제공. 별도 웹 서버·CORS 없음 |
+
+## 19.2 구조
+
+| 폴더 | 내용 |
+|-|-|
+| `api/client.ts` | `fetch` 공통. ProblemDetails → `ApiError(status, code, message, errors)`. 401이면 세션 만료 처리(로그인 요청 제외). `fieldErrors<폼>()`로 서버 검증 오류를 폼 필드에 표시 |
+| `auth/` | `AuthProvider` = `GET /api/auth/me` 결과가 로그인 상태. `RequireAuth`(비로그인 → `/login`, 돌아올 경로 보존), `useCan(메뉴키, 동작)` 버튼 표시용 |
+| `realtime/` | 로그인 중에만 `/hubs/events` 연결. `settingChanged` → 설정 캐시, `commonCodeChanged` → 공통코드 캐시 무효화, 재연결 시 전체 재조회. 끊겨도 화면은 주기 조회로 동작 |
+| `hooks/` | `useCommonCodes()` — 코드값 → 표시명(`name`), 선택 목록(`options`, 사용 중만), 속성(`attr`). `useClientSettings()` — 작업일 시작 시각·새로고침 주기 |
+| `layout/` | 사이드바 = 서버가 준 메뉴 트리(읽기 권한 메뉴만), 헤더 = 경로·실시간 상태·사용자 메뉴(비밀번호 변경·로그아웃) |
+| `pages/registry.tsx` | `menu_key` → 화면. **경로는 DB `menu.route`** — 권한 없는 화면은 라우트가 생기지 않아 404. 등록 안 된 메뉴는 "준비 중" |
+| `utils/workDate.ts` | 작업일 = 시작 시각(설정) 이전이면 전날 (§15.4 H1) |
+
+## 19.3 규칙
+
+- 새 화면: DDL §9.8 메뉴 추가 → `pages/registry.tsx` 등록 → 버튼은 `useCan`으로 표시(최종 차단은 서버 403).
+- 상태·판정은 코드값으로 비교하고 표시는 `useCommonCodes().name(그룹, 코드)`. 시각·주기는 `useClientSettings()` — 웹에도 하드코딩 금지.
+- 서버 데이터는 TanStack Query로만 읽고, 변경 후 해당 키를 무효화한다 (`queryKeys.ts` — 실시간 알림과 같은 키 공유).
+- 표는 좁은 화면(현장 PC·태블릿)을 고려해 `scroll.x`와 열 너비를 지정한다.
+
+## 19.4 대시보드
+
+작업일(설정 기준 범위), 시스템 상태(API·DB, 실시간 연결, `schedule.refresh_interval_sec` 주기 확인), 내 계정. LOT 진행·설비 가동·검사·부적합·출하·마감 패널은 자리만 두고 7단계에서 채운다.

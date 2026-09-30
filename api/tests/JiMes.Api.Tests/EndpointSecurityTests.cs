@@ -44,6 +44,7 @@ public sealed class EndpointSecurityTests(ApiFixture fx)
         await using var conn = await fx.OpenAsync();
         var keys = (await conn.QueryAsync<string>("SELECT setting_key FROM system_setting")).ToHashSet();
         Assert.All(ConstantsOf(typeof(SettingKeys)), k => Assert.Contains(k, keys));
+        Assert.All(SettingKeys.ClientVisible, k => Assert.Contains(k, keys));
     }
 
     [Fact]

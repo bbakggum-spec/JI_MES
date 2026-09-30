@@ -6,13 +6,13 @@
 
 | 경로 | 내용 |
 |-|-|
-| `docs/bbakggum_신규 설계안_V3.md` | **설계 기준 문서** (V3.9). 업무 규칙·테이블·주의사항의 근거 |
+| `docs/bbakggum_신규 설계안_V3.md` | **설계 기준 문서** (V3.10). 업무 규칙·테이블·주의사항의 근거 |
 | `db/bbakggum_v2_DDL_V3.sql` | **DDL 단일 원본** (75 테이블 + 5 VIEW + 초기 데이터). 스키마 변경은 여기만 수정 |
 | `db/test/smoke_scenario.sql` | 업무 흐름 스모크 시나리오 (DDL 변경 후 반드시 실행) |
 | `db/dev/dev-db.ps1` | 개발 DB 관리 (3307 포트, 로컬 전용) |
 | `docs/reference/` | V2 설계안, 참고 이미지 |
 | `api/` | ASP.NET Core Minimal API (.NET 10 LTS, Dapper, MySqlConnector). 구조·규칙은 설계 §18 |
-| `web/` (예정) | React + TypeScript + Vite + **Ant Design** |
+| `web/` | React 19 + TypeScript + Vite + **Ant Design 6** + TanStack Query. 구조·규칙은 설계 §19 |
 | `D:\Programming\ProductManager` | **기존 WinForms 소스 — 읽기 전용.** 업무 규칙 확인용. 수정 금지 |
 
 설계 문서는 크므로 **필요한 절만 읽는다** (예: 스케줄 작업 → §4·§7·§15.1, 출력 → §5.3·§15.2~15.3, 설정 → §15.4).
@@ -28,10 +28,15 @@ powershell -ExecutionPolicy Bypass -File db\dev\dev-db.ps1 stop
 
 dotnet test api                                          # API 테스트 (개발 DB 인스턴스에 bbakggum_v2_test 를 새로 만듦)
 dotnet run --project api\src\JiMes.Api --launch-profile http   # http://localhost:5080 (개발 DB bbakggum_v2)
+
+npm run dev --prefix web        # http://localhost:5173 (API 5080 프록시 — API 먼저 실행)
+npm test --prefix web           # 웹 단위 테스트 (vitest)
+npm run build --prefix web      # 타입 검사 + 빌드 → api/src/JiMes.Api/wwwroot (API 단독으로 웹 제공)
+npm run lint --prefix web
 ```
 
 - API 접속 정보·최초 관리자 비밀번호(개발용)는 `api/src/JiMes.Api/Properties/launchSettings.json` 환경변수. 운영은 환경변수 `ConnectionStrings__Main`, `Bootstrap__AdminPassword`
-- 새 API 엔드포인트는 `RequirePermission(MenuKeys.x, …)` / `RequireLogin()` / `AllowAnonymous()` 중 하나를 반드시 선언 (누락 시 테스트 실패). 새 메뉴는 DDL §9.8, 새 설정은 DDL §9.6 + `SettingKeys`
+- 새 API 엔드포인트는 `RequirePermission(MenuKeys.x, …)` / `RequireLogin()` / `AllowAnonymous()` 중 하나를 반드시 선언 (누락 시 테스트 실패). 새 메뉴는 DDL §9.8, 새 설정은 DDL §9.6 + `SettingKeys`. 새 화면은 메뉴(DDL §9.8) → `web/src/pages/registry.tsx` 등록, 버튼은 `useCan`
 
 - 개발 DB: `127.0.0.1:3307`, root 비밀번호 없음, DB `bbakggum_v2`. **운영 MariaDB(3306, `bbakggum`)에는 접속·실행하지 않는다.**
 - PowerShell 스크립트(.ps1)에 한글이 있으면 **UTF-8 BOM**으로 저장한다 (Windows PowerShell 5.1).
@@ -68,7 +73,7 @@ dotnet run --project api\src\JiMes.Api --launch-profile http   # http://localhos
 | 0 | 폴더·Git·CLAUDE.md·개발 DB | 완료 (2026-09-30) |
 | 1 | 기존 폼 50개 구동 방식 분석 → `docs/legacy_forms/` 폼별 정리 + 설계 보완 | **분석 완료 (2026-09-30)** — 설계 V3.8·DDL 반영 완료 |
 | 2 | API 골격 (인증·권한·감사·설정 캐시·row_version·SignalR) | **완료 (2026-09-30)** — 설계 V3.9 §18, 테스트 49건. 사용자·역할 관리 API는 5단계 |
-| 3 | 웹 골격 (Ant Design 레이아웃·로그인·권한 메뉴·대시보드 틀) | 대기 (Node.js v24 설치됨) |
+| 3 | 웹 골격 (Ant Design 레이아웃·로그인·권한 메뉴·대시보드 틀) | **완료 (2026-09-30)** — 설계 V3.10 §19. 시스템 화면 3종(설정·공통코드·변경 이력) 포함 |
 | 4 | 고난도 프로토타입: ① 스케줄 서비스 + Gantt (구 SP 결과 비교) ② 출력 엔진 (EXCEL 성적서 + FIXED 거래명세표) | 대기 |
 | 5 | 기준정보 화면 | 대기 |
 | 6 | 업무: 수주 → 계획 → 투입 → 검사·성적서 → 부적합·재작업 → 출하·마감 | 대기 |

@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Dapper;
 using JiMes.Api.Infrastructure.Security;
+using JiMes.Api.Infrastructure.Settings;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace JiMes.Api.Tests;
@@ -106,6 +107,17 @@ public sealed class AuthTests(ApiFixture fx)
         var client = await fx.LoginAsync("no_perm", "no-perm-pw");
         Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync("/api/settings")).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/common-codes")).StatusCode);   // 로그인만 필요
+
+        // 웹 동작용 설정은 권한 없이 읽지만, 공개 목록의 키만 내려간다
+        var clientSettings = await client.GetFromJsonAsync<Dictionary<string, string>>("/api/client-settings");
+        Assert.Equal(SettingKeys.ClientVisible.Order(), clientSettings!.Keys.Order());
+    }
+
+    [Fact]
+    public async Task Unknown_api_path_is_404_not_spa_fallback()
+    {
+        var client = await fx.LoginAdminAsync();
+        Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync("/api/no-such-endpoint")).StatusCode);
     }
 
     [Fact]
