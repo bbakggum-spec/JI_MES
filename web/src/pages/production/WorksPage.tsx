@@ -151,6 +151,7 @@ function WorkPanel({ id, menuKey }: { id: number; menuKey: string }) {
   const [error, setError] = useState<string | null>(null)
   const [standardsOpen, setStandardsOpen] = useState(false)
   const [finishing, setFinishing] = useState<'start' | 'complete' | null>(null)
+  const [defectFor, setDefectFor] = useState<WorkDetail['inputs'][number] | null>(null)
 
   if (!d) return <Card loading />
   const w = d.work
@@ -219,7 +220,10 @@ function WorkPanel({ id, menuKey }: { id: number; menuKey: string }) {
                     onBlur={(e) => { const n = Number(e.target.value.replace(/,/g, '')); if (n && n !== v) void act(() => api(`/api/works/${id}/inputs/${r.productionWorkInputId}`, { method: 'PUT', body: { rowVersion: w.rowVersion, inputQty: n, trayMark: r.trayMark, remark: r.remark } })) }} />
                 : qty(v),
             },
-            { title: '불량', dataIndex: 'defectQty', width: 70, align: 'right', render: qty },
+            {
+              title: '불량', dataIndex: 'defectQty', width: 110, align: 'right',
+              render: (v: number, r) => <Space size={4}>{qty(v)}{canUpdate && (w.status === 'INPUT' || w.status === 'COMPLETED') && <Button size="small" onClick={() => setDefectFor(r)}>등록</Button>}</Space>,
+            },
             { title: '양품', dataIndex: 'goodQty', width: 80, align: 'right', render: qty },
             ...(editable ? [{
               title: '', width: 50, render: (_: unknown, r: WorkDetail['inputs'][number]) => (
@@ -246,6 +250,11 @@ function WorkPanel({ id, menuKey }: { id: number; menuKey: string }) {
         void act(() => api(`/api/works/${id}/fix-standard`, {
           method: 'POST', body: { rowVersion: w.rowVersion, productionWorkInputId: c.productionWorkInputId, standardVersionId: c.standardVersionId },
         }), `${c.standardName} v${c.versionNo} 으로 확정 — 조건을 복사했습니다.`)
+      }} />}
+      {defectFor && <DefectModal input={defectFor} onClose={() => setDefectFor(null)} onSave={(v) => {
+        setDefectFor(null)
+        void act(() => api(`/api/works/${id}/inputs/${defectFor.productionWorkInputId}/defects`, { method: 'POST', body: { ...v, rowVersion: w.rowVersion } }),
+          `${defectFor.orderItemNo} 불량 ${qty(v.defectQty)} 을 등록했습니다 (품질 > 부적합에서 처리).`)
       }} />}
       {finishing && <TimeModal kind={finishing} onClose={() => setFinishing(null)} onOk={(at) => {
         setFinishing(null)
@@ -390,6 +399,22 @@ function TimeModal({ kind, onClose, onOk }: { kind: 'start' | 'complete'; onClos
         <DatePicker showTime={{ format: 'HH:mm' }} format="YYYY-MM-DD HH:mm" value={at} onChange={setAt} placeholder="지금" />
         <Badge status="processing" text={kind === 'start' ? '설비당 진행 중 LOT 은 1건입니다.' : '완료 후에는 투입·조건을 바꿀 수 없습니다.'} />
       </Space>
+    </Modal>
+  )
+}
+
+/** 투입 행 불량 등록 (구 작업 화면 불량수량) — 품질 > 부적합에서 판정·재작업 */
+function DefectModal({ input, onClose, onSave }: { input: WorkDetail['inputs'][number]; onClose: () => void; onSave: (v: { defectQty: number; defectReasonId?: number; remark?: string }) => void }) {
+  const reasons = useOptions('/api/master/defect_reason/options')
+  const [form] = Form.useForm<{ defectQty: number; defectReasonId?: number; remark?: string }>()
+  return (
+    <Modal open title={`불량 등록 — ${input.orderItemNo} ${input.partName ?? ''}`} onCancel={onClose} onOk={() => void form.validateFields().then(onSave)} okText="등록">
+      <Typography.Paragraph type="secondary">양품 {qty(input.goodQty)} 중 불량 수량. 등록하면 양품이 줄고, 품질 &gt; 부적합에서 처리구분을 정합니다.</Typography.Paragraph>
+      <Form form={form} layout="vertical">
+        <Form.Item name="defectQty" label="불량 수량" rules={[{ required: true }]}><InputNumber min={0} max={input.goodQty} style={{ width: 160 }} autoFocus /></Form.Item>
+        <Form.Item name="defectReasonId" label="불량 사유"><Select allowClear showSearch optionFilterProp="label" options={reasons.options} /></Form.Item>
+        <Form.Item name="remark" label="내용"><Input maxLength={255} /></Form.Item>
+      </Form>
     </Modal>
   )
 }

@@ -1564,6 +1564,7 @@ CREATE TABLE defect_occurrence (
     defect_date         DATE         NOT NULL,
     defect_qty          DECIMAL(14,3) NOT NULL DEFAULT 0,
     defect_weight       DECIMAL(14,4) NULL,
+    remark              VARCHAR(255) NULL COMMENT '발생 내용 (작업 화면 불량 등록 메모)',
     status              VARCHAR(30)  NOT NULL DEFAULT 'OPEN',
     decision            VARCHAR(30)  NULL,
     decision_remark     TEXT         NULL,
@@ -2094,7 +2095,8 @@ INSERT INTO common_code_group (group_code, group_name, description) VALUES
  ('ATTACHMENT_KIND',     '첨부 종류',     'attachment.attachment_kind — 구 PC 로컬 폴더(PartDrawingFolder 등) 대체'),
  ('RANGE_TYPE',          '판정 방식',     'inspection_criteria.range_type — 측정값 자동 판정 기준'),
  ('ORDER_STATUS',        '수주 상태',     'sales_order / sales_order_item.status CHECK 값'),
- ('INSPECTION_STATUS',   '검사 상태',     'inspection.status CHECK 값 (저장=미확정, 확정)');
+ ('INSPECTION_STATUS',   '검사 상태',     'inspection.status CHECK 값 (저장=미확정, 확정)'),
+ ('DEFECT_STATUS',       '부적합 상태',   'defect_occurrence.status CHECK 값 (구 check_complete·plan_complete)');
 
 INSERT INTO common_code (common_code_group_id, code, code_name, sort_order, attr_json, is_system)
 SELECT g.common_code_group_id, v.code, v.name, v.ord, v.attr, 1
@@ -2165,7 +2167,12 @@ SELECT g.common_code_group_id, v.code, v.name, v.ord, v.attr, 1
         UNION ALL SELECT 'INSPECTION_STATUS', 'WAITING', '대기', 1, '{"color":"#8C8C8C"}'
         UNION ALL SELECT 'INSPECTION_STATUS', 'IN_PROGRESS', '저장(미확정)', 2, '{"color":"#FA8C16"}'
         UNION ALL SELECT 'INSPECTION_STATUS', 'COMPLETED', '확정', 3, '{"color":"#1677FF"}'
-        UNION ALL SELECT 'INSPECTION_STATUS', 'CANCELLED', '취소', 4, '{"color":"#BFBFBF"}') v
+        UNION ALL SELECT 'INSPECTION_STATUS', 'CANCELLED', '취소', 4, '{"color":"#BFBFBF"}'
+        UNION ALL SELECT 'DEFECT_STATUS', 'OPEN', '미결정', 1, '{"color":"#E53935"}'
+        UNION ALL SELECT 'DEFECT_STATUS', 'DECIDED', '결정', 2, '{"color":"#FA8C16"}'
+        UNION ALL SELECT 'DEFECT_STATUS', 'REWORKING', '재작업 중', 3, '{"color":"#1677FF"}'
+        UNION ALL SELECT 'DEFECT_STATUS', 'COMPLETED', '완료', 4, '{"color":"#52C41A"}'
+        UNION ALL SELECT 'DEFECT_STATUS', 'CANCELLED', '취소', 5, '{"color":"#BFBFBF"}') v
   JOIN common_code_group g ON g.group_code = v.grp;
 
 -- =====================================================================
@@ -2217,6 +2224,7 @@ SELECT v.k, v.n, p.menu_id, v.r, v.o
         UNION ALL SELECT 'production.work',         '작업(투입)',    'production', '/production/works', 20
         UNION ALL SELECT 'sales.order',             '수주(입고)',    'sales', '/sales/orders', 10
         UNION ALL SELECT 'quality.inspection',      '검사',          'quality', '/quality/inspections', 10
+        UNION ALL SELECT 'quality.defect',          '부적합',        'quality', '/quality/defects', 20
         UNION ALL SELECT 'master.company',          '자사 정보',     'master', '/master/company', 10
         UNION ALL SELECT 'master.customer',         '거래처',        'master', '/master/customer', 20
         UNION ALL SELECT 'master.part',             '품목',          'master', '/master/part', 25

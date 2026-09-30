@@ -423,6 +423,44 @@ public sealed class WorkService(
         await tx.CommitAsync(ct);
     }
 
+    /// <summary>
+    /// 투입 행 불량 등록 (구 작업 화면 불량수량, 설계 §17 불량 수량) — 발견 공정 = 이 투입 행, 주 LOT 병기, 상태 미결정.
+    /// 수량 ≤ 투입 − 기존 부적합 − 후공정이 이미 가져간 수량 (양품이 음수가 되지 않게).
+    /// </summary>
+    public async Task<object> RegisterDefectAsync(long id, long inputId, RegisterDefectRequest r, CancellationToken ct)
+    {
+        if (r.DefectQty <= 0) throw new RequestValidationException("defectQty", "불량 수량은 0보다 커야 합니다.");
+        if (Longer(r.Remark, 255)) throw new RequestValidationException("remark", "255자 이하여야 합니다.");
+        await using var conn = await db.OpenAsync(ct);
+        await using var tx = await conn.BeginTransactionAsync(ct);
+        var work = await LockAsync(conn, tx, id, r.RowVersion);
+        if (work.Status is not ("INPUT" or "COMPLETED"))
+            throw new BusinessRuleException("WORK_NOT_STARTED", "투입(진행)했거나 완료한 LOT 에만 불량을 등록할 수 있습니다.");
+        await LockInputAsync(conn, tx, id, inputId);
+        var available = await conn.ExecuteScalarAsync<decimal>(
+            """
+            SELECT pwi.input_qty
+                 - COALESCE((SELECT SUM(defect_qty) FROM defect_occurrence WHERE production_work_input_id = pwi.production_work_input_id AND is_deleted = 0 AND status <> 'CANCELLED'), 0)
+                 - COALESCE((SELECT SUM(input_qty) FROM production_work_input WHERE main_input_id = pwi.production_work_input_id AND status <> 'CANCELLED'), 0)
+              FROM production_work_input pwi WHERE pwi.production_work_input_id = @inputId
+            """, new { inputId }, tx);
+        if (r.DefectQty > available)
+            throw new BusinessRuleException("DEFECT_EXCEEDS_GOOD", $"불량 수량이 남은 양품({available:0.###})보다 많습니다.");
+        var defectId = await conn.ExecuteScalarAsync<long>(
+            """
+            INSERT INTO defect_occurrence (defect_reason_id, sales_order_item_id, production_work_id, production_work_input_id, main_work_id, defect_date,
+                   defect_qty, defect_weight, remark, status, created_by, updated_by)
+            SELECT @DefectReasonId, pwi.sales_order_item_id, pwi.production_work_id, pwi.production_work_input_id, pwi.main_work_id, @date,
+                   @DefectQty, IF(pwi.input_weight IS NULL, NULL, pwi.input_weight / NULLIF(pwi.input_qty, 0) * @DefectQty), @remark, 'OPEN', @UserId, @UserId
+              FROM production_work_input pwi WHERE pwi.production_work_input_id = @inputId;
+            SELECT LAST_INSERT_ID();
+            """, new { inputId, r.DefectReasonId, r.DefectQty, date = (r.DefectDate ?? DateOnly.FromDateTime(Now())).ToDateTime(TimeOnly.MinValue), remark = Trim(r.Remark), currentUser.UserId }, tx);
+        await BumpAsync(conn, tx, id);
+        await audit.WriteAsync(conn, tx, AuditAction.Create, "defect_occurrence", defectId, null, new { lot_no = work.LotNo, inputId, r.DefectQty, r.DefectReasonId, r.Remark });
+        await tx.CommitAsync(ct);
+        return new { defectOccurrenceId = defectId };
+    }
+
     // ───────────────────────── 시작 · 완료 · 머리 ─────────────────────────
 
     /// <summary>투입(작업 시작) — 배정 → 투입. 설비당 진행 중 LOT 1건 (DB UNIQUE 와 같은 규칙을 먼저 검사해 알기 쉬운 오류로)</summary>
@@ -473,6 +511,13 @@ public sealed class WorkService(
                  WHERE production_work_id = @id
                 """, new { id, end, minutes = (decimal)(end - start).TotalMinutes, currentUser.UserId }, tx);
             await EventAsync(conn, tx, id, "COMPLETE", end);
+            // 재작업 LOT 이 끝나면 그 부적합도 완료 (구 재작업 완료 수동 입력 → 자동, 수동 완료도 가능)
+            await conn.ExecuteAsync(
+                """
+                UPDATE defect_occurrence d JOIN production_work_input ri ON ri.production_work_input_id = d.rework_input_id
+                   SET d.status = 'COMPLETED', d.completed_at = @end, d.updated_by = @UserId, d.row_version = d.row_version + 1
+                 WHERE ri.production_work_id = @id AND d.status = 'REWORKING'
+                """, new { id, end, currentUser.UserId }, tx);
             await audit.WriteAsync(conn, tx, AuditAction.StatusChange, Table, id, new { status = work.Status }, new { status = "COMPLETED", actual_end_at = end });
             await tx.CommitAsync(ct);
         }

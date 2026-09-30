@@ -352,7 +352,10 @@ public sealed class SchedulingService(
     /// 즉시 작업 (구 F_GasForm NEW — 계획 없이 바로 작업) — 계획 1:1 규칙을 지키려고 지금 시각의 작업지시된 계획 블록을 함께 만든다.
     /// 작업시간은 설정 기본값, 투입 후 표준 확정 때 표준 작업시간으로 바뀐다.
     /// </summary>
-    public async Task<ReleasedLot> CreateAdHocAsync(long equipmentId, long unitProcessId, CancellationToken ct)
+    /// <param name="isRework">재작업 LOT (부적합 재처리, 설계 §3.3)</param>
+    /// <param name="afterCreate">같은 트랜잭션에서 이어 할 일 (재작업 투입 행 생성 등) — 실패하면 LOT 도 만들어지지 않는다</param>
+    public async Task<ReleasedLot> CreateAdHocAsync(long equipmentId, long unitProcessId, CancellationToken ct, bool isRework = false,
+        Func<MySqlConnection, MySqlTransaction, long, Task>? afterCreate = null)
     {
         await using var conn = await db.OpenAsync(ct);
         await using var tx = await conn.BeginTransactionAsync(ct);
@@ -370,13 +373,16 @@ public sealed class SchedulingService(
             """
             INSERT INTO production_schedule (work_date, equipment_id, unit_process_id, sequence_no, planned_qty, planned_duration_min, duration_source,
                    planned_start_at, planned_end_at, status, remark, created_by, updated_by)
-            VALUES (@workDate, @equipmentId, @unitProcessId, 0, 0, @minutes, 'SETTING', @now, @end, 'RELEASED', '즉시 작업', @UserId, @UserId);
+            VALUES (@workDate, @equipmentId, @unitProcessId, 0, 0, @minutes, 'SETTING', @now, @end, 'RELEASED', @remark, @UserId, @UserId);
             SELECT LAST_INSERT_ID();
-            """, new { workDate, equipmentId, unitProcessId, minutes, now, end = now + ScheduleCalculator.Duration(minutes), currentUser.UserId }, tx);
-        var (workId, lotNo) = await InsertWorkAsync(conn, tx, new NewWork(blockId, unitProcessId, equipmentId, workDate, minutes, false, false, null, null,
+            """, new { workDate, equipmentId, unitProcessId, minutes, now, end = now + ScheduleCalculator.Duration(minutes), remark = isRework ? "재작업" : "즉시 작업", currentUser.UserId }, tx);
+        if (isRework)
+            await conn.ExecuteAsync("UPDATE production_schedule SET is_rework = 1 WHERE production_schedule_id = @blockId", new { blockId }, tx);
+        var (workId, lotNo) = await InsertWorkAsync(conn, tx, new NewWork(blockId, unitProcessId, equipmentId, workDate, minutes, isRework, false, null, null,
             unitName, equipment.EquipmentName, equipment.Initial), now);
         await audit.WriteAsync(conn, tx, AuditAction.Create, "production_work", workId, null,
-            new { lot_no = lotNo, equipment_id = equipmentId, unit_process_id = unitProcessId, production_schedule_id = blockId, ad_hoc = true });
+            new { lot_no = lotNo, equipment_id = equipmentId, unit_process_id = unitProcessId, production_schedule_id = blockId, ad_hoc = true, is_rework = isRework });
+        if (afterCreate is not null) await afterCreate(conn, tx, workId);
         await RecalculateCoreAsync(conn, tx, equipmentId);
         await tx.CommitAsync(ct);
         await PublishAsync([equipmentId], ct);

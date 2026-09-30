@@ -31,6 +31,8 @@ public static class WorkEndpoints
         g.MapDelete("/{id:long}/inputs/{inputId:long}", async (long id, long inputId, int rowVersion, WorkService s, CancellationToken ct) =>
                 { await s.DeleteInputAsync(id, inputId, rowVersion, ct); return Results.NoContent(); })
             .RequirePermission(key, PermissionAction.Update);
+        g.MapPost("/{id:long}/inputs/{inputId:long}/defects", (long id, long inputId, RegisterDefectRequest r, WorkService s, CancellationToken ct) => s.RegisterDefectAsync(id, inputId, r, ct))
+            .RequirePermission(key, PermissionAction.Update);
         g.MapPost("/{id:long}/start", async (long id, StartWorkRequest r, WorkService s, CancellationToken ct) => { await s.StartAsync(id, r, ct); return Results.NoContent(); })
             .RequirePermission(key, PermissionAction.Update);
         g.MapPost("/{id:long}/complete", async (long id, CompleteWorkRequest r, WorkService s, CancellationToken ct) => { await s.CompleteAsync(id, r, ct); return Results.NoContent(); })

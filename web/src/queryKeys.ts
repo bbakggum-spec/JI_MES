@@ -12,5 +12,6 @@ export const queryKeys = {
   sales: ['sales'] as const,
   works: ['works'] as const,
   inspections: ['inspections'] as const,
+  defects: ['defects'] as const,
   admin: ['admin'] as const,
 }

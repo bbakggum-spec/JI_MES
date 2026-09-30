@@ -132,3 +132,4 @@ public sealed record FixStandardRequest(int RowVersion, long ProductionWorkInput
 public sealed record WorkConditionInput(int? StepNo, long ConditionItemId, string? ConditionValue);
 public sealed record SaveConditionsRequest(int RowVersion, string[]? Steps, long[]? Items, WorkConditionInput[]? Conditions);
 public sealed record AdHocWorkRequest(long EquipmentId, long UnitProcessId);
+public sealed record RegisterDefectRequest(int RowVersion, decimal DefectQty, long? DefectReasonId, string? Remark, DateOnly? DefectDate);
