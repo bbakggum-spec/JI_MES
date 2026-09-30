@@ -314,5 +314,70 @@ public sealed class SchedulingApiTests(ApiFixture fx) : IAsyncLifetime
         Assert.Equal(HttpStatusCode.Forbidden, res.StatusCode);
     }
 
+    private sealed class ScheduleState
+    {
+        public string Status { get; init; } = "";
+        public int RowVersion { get; init; }
+        public DateTime WorkDate { get; init; }
+    }
+
+    private async Task<ScheduleState> StateAsync(long blockId)
+    {
+        await using var c = await fx.OpenAsync();
+        return await c.QuerySingleAsync<ScheduleState>(
+            "SELECT status, row_version, work_date FROM production_schedule WHERE production_schedule_id = @blockId", new { blockId });
+    }
+
+    [Fact]
+    public async Task Confirm_release_and_unrelease_manage_work_lots()
+    {
+        var first = await CreateAsync(_s.ItemA, _s.Gas1);
+        var second = await CreateAsync(_s.ItemD, _s.Gas1);
+
+        // 확정 (표시만, 여전히 재계산 대상)
+        var confirm = await _client.PutAsJsonAsync($"/api/schedule/blocks/{second}/confirm", new { rowVersion = (await StateAsync(second)).RowVersion, confirmed = true });
+        Assert.Equal(HttpStatusCode.NoContent, confirm.StatusCode);
+        Assert.Equal("CONFIRMED", (await StateAsync(second)).Status);
+
+        // 작업지시 (앞선 계획 포함) → 작업 LOT 2개, 배정 상태
+        var res = await _client.PostAsJsonAsync($"/api/schedule/blocks/{second}/release", new { rowVersion = (await StateAsync(second)).RowVersion, includePrevious = true });
+        Assert.True(res.IsSuccessStatusCode, await res.Content.ReadAsStringAsync());
+        var lots = (await res.Content.ReadFromJsonAsync<JsonElement>()).EnumerateArray().ToList();
+        Assert.Equal([first, second], lots.Select(l => l.GetProperty("productionScheduleId").GetInt64()));
+        var workDate = (await StateAsync(first)).WorkDate;
+        Assert.Equal($"{workDate:yyMMdd}-G1-001", lots[0].GetProperty("lotNo").GetString());
+        Assert.Empty(await BlocksAsync(_s.Gas1));   // 재계산 대상에서 빠짐
+
+        await using (var c = await fx.OpenAsync())
+        {
+            var work = await c.QuerySingleAsync<(string Status, bool IsMain, long EventCount)>(
+                """
+                SELECT w.status, w.is_main_process, (SELECT COUNT(*) FROM production_work_event e WHERE e.production_work_id = w.production_work_id AND e.event_type = 'ALLOCATE')
+                  FROM production_work w WHERE w.production_schedule_id = @first
+                """, new { first });
+            Assert.Equal(("ALLOCATED", true, 1L), work);
+        }
+
+        // 보드에 작업 LOT 표시
+        var board = await _client.GetFromJsonAsync<JsonElement>($"/api/schedule/board?from={workDate:yyyy-MM-dd}&days=3");
+        var released = board.GetProperty("blocks").EnumerateArray().Single(b => b.GetProperty("productionScheduleId").GetInt64() == first);
+        Assert.Equal(("RELEASED", lots[0].GetProperty("lotNo").GetString()), (released.GetProperty("status").GetString(), released.GetProperty("workLotNo").GetString()));
+
+        // 작업지시 취소 → 확정 상태로, LOT 은 취소(삭제 표시). 다시 작업지시하면 새 순번
+        var unrelease = await _client.PostAsJsonAsync($"/api/schedule/blocks/{first}/unrelease", new { rowVersion = (await StateAsync(first)).RowVersion, reason = "순서 변경" });
+        Assert.Equal(HttpStatusCode.NoContent, unrelease.StatusCode);
+        Assert.Equal("CONFIRMED", (await StateAsync(first)).Status);
+        var again = await _client.PostAsJsonAsync($"/api/schedule/blocks/{first}/release", new { rowVersion = (await StateAsync(first)).RowVersion, includePrevious = false });
+        var againLot = (await again.Content.ReadFromJsonAsync<JsonElement>())[0].GetProperty("lotNo").GetString();
+        // 같은 작업일이면 001(취소)·002 다음 003, 두 계획의 작업일이 갈리면(작업일 시작 직전) 001(취소) 다음 002
+        Assert.EndsWith(workDate == (await StateAsync(second)).WorkDate ? "-G1-003" : "-G1-002", againLot);
+
+        // 투입된 LOT 은 작업지시 취소 불가
+        await using (var c = await fx.OpenAsync())
+            await c.ExecuteAsync("UPDATE production_work SET status = 'INPUT' WHERE production_schedule_id = @second", new { second });
+        var started = await _client.PostAsJsonAsync($"/api/schedule/blocks/{second}/unrelease", new { rowVersion = (await StateAsync(second)).RowVersion });
+        Assert.Equal("WORK_STARTED", (await started.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
+    }
+
     private static DateTime TrimToMinute(DateTime t) => new(t.Year, t.Month, t.Day, t.Hour, t.Minute, 0);
 }

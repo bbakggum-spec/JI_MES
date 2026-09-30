@@ -162,7 +162,7 @@ export default function ScheduleGantt(props: Props) {
                 return (
                   <Tooltip key={b.productionScheduleId} mouseEnterDelay={0.4} title={
                     <div>
-                      <div>{b.plannedLotNo} · {b.unitProcessName}</div>
+                      <div>{b.workLotNo ?? b.plannedLotNo} · {b.unitProcessName}</div>
                       <div>{dayjs(b.plannedStartAt).format('MM-DD HH:mm')} ~ {dayjs(b.plannedEndAt).format('MM-DD HH:mm')} ({b.plannedDurationMin}분)</div>
                       {b.items.map((i) => <div key={i.salesOrderItemId}>{i.orderItemNo} {i.customerName} {i.partName} {i.plannedQty}</div>)}
                     </div>
@@ -182,7 +182,7 @@ export default function ScheduleGantt(props: Props) {
                         outline: b.productionScheduleId === selectedId ? `2px solid ${token.colorText}` : b.isTimeLocked ? '2px dashed #fff' : undefined,
                         outlineOffset: -2, boxShadow: token.boxShadowTertiary,
                       }}>
-                      <div>{b.isTimeLocked && <LockOutlined style={{ marginRight: 4 }} />}{b.plannedLotNo}</div>
+                      <div>{b.isTimeLocked && <LockOutlined style={{ marginRight: 4 }} />}{b.workLotNo ?? b.plannedLotNo}</div>
                       <div style={{ opacity: 0.9 }}>
                         {first ? `${first.partName ?? ''}${b.items.length > 1 ? ` 외 ${b.items.length - 1}` : ''}` : ''} · {b.plannedQty}
                       </div>

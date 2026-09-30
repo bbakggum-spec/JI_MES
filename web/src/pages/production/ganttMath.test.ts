@@ -10,7 +10,7 @@ function block(id: number, start: string, end: string, extra: Partial<BoardBlock
     productionScheduleId: id, equipmentId: 1, unitProcessId: 1, unitProcessName: '침탄', workDate: '2026-10-05', sequenceNo: id,
     plannedLotNo: `P-${id}`, plannedQty: 1, plannedDurationMin: 60, durationSource: 'STANDARD',
     plannedStartAt: `2026-10-05T${start}:00`, plannedEndAt: `2026-10-05T${end}:00`,
-    status: 'PLANNED', isTimeLocked: false, isRework: false, rowVersion: 0, items: [], ...extra,
+    status: 'PLANNED', isTimeLocked: false, isRework: false, rowVersion: 0, productionWorkId: null, workLotNo: null, workStatus: null, items: [], ...extra,
   }
 }
 

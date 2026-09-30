@@ -1,4 +1,4 @@
-# bbakggum DB 구조개편 설계안 V3.15
+# bbakggum DB 구조개편 설계안 V3.16
 
 | 항목 | 내용 |
 |-|-|
@@ -20,6 +20,7 @@
 | V3.5 | 2026-09-30 | **모든 출력물 = 사용자 엑셀 양식 등록 방식**, 출력 용도 **사용자 확장**(`print_purpose`), 양식 파일 **DB 버전 보관**, 치환자 사전(`print_field`), 출력 이력(`print_log`), **구현 시 주의사항**(§15: 스케줄·진행현황, 엑셀 양식 출력 — 기존 소스 분석), 기존 DB 보존 + 신규 구축 원칙 명시 |
 | V3.6 | 2026-09-30 | 양식 등록 방식 **2가지**: EXCEL(사용자 수정 양식) + **FIXED**(코드 고정 레이아웃 — 거래명세표 등 구 PrintDoc 7종, 레이아웃 옵션은 관리자 조정), **하드코딩 → 관리자 설정**(§15.4, `system_setting` 확장·초기값, 로직 참조 공통코드, 단말별 프린터 `workstation_print_setting`, 도장 이미지 DB 보관) |
 | V3.8 | 2026-09-30 | **1단계 기존 폼 분석 반영** (`docs/legacy_forms/`): 입고번호 = 스캔 수주번호(`order_item_no`), 수주 행 요구사항 Snapshot·우선순위·별도관리·고객 작업지시번호, 품목 단가 적용 구분(EA/KG/CHARGE), 설비당 투입 중 작업 1건, 한 LOT에 같은 수주 1회, 관리항목 템플릿(`step_template_condition`), 검사구분(입고/공정/출하)·재검사·**검사 결과 공통 적용**, 부적합 처리구분(재처리/출하/선별/보류/폐기/반송), 출하 시험편·거래처 Snapshot·전표 단위 마감 상태(미마감/마감/이월), 공통 첨부(`attachment`), 설정·공통코드 추가. 배정 병합 시 최대 작업시간, 지연 시 뒤 배정 계획시각 자동 이동 |
+| V3.16 | 2026-10-01 | **6단계 ② 계획 확정·작업지시** (§23.3): 확정/해제, 작업지시(RELEASE) = 작업 LOT 배정 생성(LOT번호 `lot.number_format`, 앞 계획까지 일괄), 작업지시 취소(투입 전만, LOT 번호 재사용 안 함), 보드에 작업 LOT 표시 |
 | V3.15 | 2026-10-01 | **6단계 ① 수주(입고)** (§23): 묶음 1건 + 행마다 입고번호, 품목 스펙 Snapshot, 거래처 품목 후보, 계획·투입·출하 수량 이하로 수량 축소·공정 변경·취소 금지. 번호 부여 공용 `DocumentNumbers`(이름 잠금). 설정 `sales_order.number_format`·`sales_order.list_default_days`, 공통코드 `ORDER_STATUS`, 메뉴 `sales.order` |
 | V3.14 | 2026-10-01 | **작업표준 입력표 가변식** (§2.1·§22.5, 구 `F_WorkStandardAddForm` 비교): 스텝(열)·관리항목(행)을 작업표준 Version 마다 직접 보관(`standard_version_step`·`standard_version_item`), 조건 = (스텝 순서, 항목). 단계 템플릿은 입력표 **초기값**(불러오기·"이 구성을 템플릿으로 저장"). `production_work_condition` 단계 키 = 스텝 순서(템플릿 id 참조 제거). 입력표에서 조건 항목 즉석 등록. 추가·수정 입력은 가운데 별도 창, 좌측 메뉴 단독 스크롤 |
 | V3.13 | 2026-09-30 | **5단계 기준정보** (§22, §12 확인 ⑧⑨): 단순 기준정보 14종 = 정의 기반 범용 API·화면(정의 ↔ DDL 대조 테스트), 사용자·역할 권한 관리, 품목(거래처 품번·공정·도면/이미지 첨부·성적서 양식 연결·이력), 공정 경로·단계 템플릿·작업표준(행렬·버전·복사), 검사기준(버전·항목·측정 위치). DDL: 메뉴 master.* 19개, 공통코드 `CUSTOMER_TYPE`·`DAY_TYPE`·`CONDITION_VALUE_TYPE`·`ATTACHMENT_KIND`·`RANGE_TYPE`, 설정 `file.max_attachment_mb`·`standard.code_format` |
@@ -854,7 +855,7 @@ print_log                                발행 이력 (양식 버전, 대상, �
 
 ## 20.4 남은 일
 
-- 계획 상태 전환(PLANNED → CONFIRMED → RELEASED = 작업 LOT 생성)은 6단계 투입과 함께.
+- ~~계획 상태 전환~~ → 6-② 완료 (§23.3).
 - 재작업 계획(부적합 → 블록), 밀린 계획 오늘로, 작업자 배정은 6단계.
 - SignalR 그룹을 설비·일자 단위로 나누기 (현재 전체 전송) — 동시 사용자가 늘면.
 
@@ -1008,7 +1009,7 @@ POST /api/print/issue {purposeCode, sourceId, printTemplateId?}
 | 순서 | 범위 | 상태 |
 |-|-|-|
 | 6-① | 수주(입고) 등록·목록·수정·취소 | V3.15 완료 |
-| 6-② | 계획 확정·작업지시(RELEASE → 작업 LOT 배정), 재작업 계획 | 대기 |
+| 6-② | 계획 확정·작업지시(RELEASE → 작업 LOT 배정) | V3.16 완료 (재작업 계획은 6-⑤) |
 | 6-③ | 투입·작업 (수주번호/주 LOT 스캔, 표준 확정·조건 복사, 시작·완료, 불량 수량) | 대기 |
 | 6-④ | 검사·성적서 (검사 1회 : 대상 N, 판정, 대상별 성적서 발행) | 대기 |
 | 6-⑤ | 부적합·재작업 | 대기 |
@@ -1030,3 +1031,17 @@ POST /api/print/issue {purposeCode, sourceId, printTemplateId?}
 - 구 "별도관리는 수정 모드에서 변경 불가"는 이유가 없어(라벨 재출력으로 해결) 수정 가능으로 둠.
 
 **남은 일 (6-①):** 저장 후 **공정이동표·제품라벨** 즉시 출력 — FIXED 렌더러 `PROCESS_SHEET`·`PRODUCT_LABEL`과 단말 자동 인쇄는 출력 방식(브라우저 인쇄) 결정과 함께 (§21.5). 엑셀 내보내기.
+
+## 23.3 계획 확정·작업지시 — 6-②
+
+| API (권한 `production.schedule` U) | 동작 |
+|-|-|
+| `PUT /api/schedule/blocks/{id}/confirm {rowVersion, confirmed}` | PLANNED ↔ CONFIRMED. 확정도 재계산 대상이고 수정 가능 — 현장에 "확정된 계획"을 알리는 표시 |
+| `POST …/blocks/{id}/release {rowVersion, includePrevious}` | **작업지시** = 작업 LOT 생성(`production_work`, 상태 ALLOCATED "배정") + 이벤트 ALLOCATE. `includePrevious` = 같은 설비 체인에서 이 계획까지 모두. 응답 = 만든 LOT 목록 |
+| `POST …/blocks/{id}/unrelease {rowVersion}` | 작업지시 취소 — 투입 전(ALLOCATED)만(`WORK_STARTED`). LOT 은 CANCELLED + 삭제 표시 + 계획 연결 해제로 남기고(감사·번호 보존), 계획은 CONFIRMED로 돌아가 재계산 |
+
+- **LOT번호:** 설정 `lot.number_format` (`{yyMMdd}` = 계획 작업일, `{EQUIP}` = 설비 이니셜, `{SEQ}` = 설비 × 작업일 순번). 순번 = 그 설비·작업일의 마지막 LOT 순번 + 1 — **취소된 LOT 순번도 다시 쓰지 않는다** (현장에 붙은 번호와 혼동 방지). 임시 LOT(`P…`) 미리보기도 같은 기준.
+- **LOT 정보:** 주공정 여부 = 담긴 수주의 공정 경로에서 이 단위공정이 주공정인지. 공정 경로 Version 은 담긴 수주가 모두 같을 때만 기록(혼적이면 NULL). 예상 작업시간 = 계획 작업시간. 단위공정·설비·공정명 Snapshot.
+- **스케줄:** 작업지시된 블록은 재계산에서 빠지고, 투입 전이면 체인 시작점(앵커)이 그 계획 종료 뒤가 된다 (§20). 보드에 작업 LOT번호·상태를 표시.
+- **화면:** 생산계획 블록 상세 아래 [계획 확정/확정 해제] [작업지시] [앞 계획까지 작업지시], 작업지시된 블록은 [작업지시 취소]. Gantt 막대 이름은 작업 LOT번호.
+- 작업자 배정(`worker_assignment`)·밀린 계획 오늘로 옮기기는 투입 화면(6-③)과 함께 검토.

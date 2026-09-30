@@ -44,6 +44,10 @@ public sealed class BoardBlockDto
     public bool IsTimeLocked { get; init; }
     public bool IsRework { get; init; }
     public int RowVersion { get; init; }
+    /// <summary>작업지시된 블록의 작업 LOT</summary>
+    public long? ProductionWorkId { get; init; }
+    public string? WorkLotNo { get; init; }
+    public string? WorkStatus { get; init; }
     public List<BoardBlockItemDto> Items { get; } = [];
 }
 
@@ -124,6 +128,15 @@ public static class ScheduleEndpoints
         group.MapPost("/blocks/{id:long}/cancel", async (long id, VersionedRequest r, SchedulingService s, CancellationToken ct) =>
             { await s.CancelAsync(id, r, ct); return Results.NoContent(); })
             .RequirePermission(key, PermissionAction.Delete);
+        group.MapPut("/blocks/{id:long}/confirm", async (long id, ConfirmBlockRequest r, SchedulingService s, CancellationToken ct) =>
+            { await s.ConfirmAsync(id, r, ct); return Results.NoContent(); })
+            .RequirePermission(key, PermissionAction.Update);
+        group.MapPost("/blocks/{id:long}/release", async (long id, ReleaseBlockRequest r, SchedulingService s, CancellationToken ct) =>
+                Results.Ok(await s.ReleaseAsync(id, r, ct)))
+            .RequirePermission(key, PermissionAction.Update);
+        group.MapPost("/blocks/{id:long}/unrelease", async (long id, VersionedRequest r, SchedulingService s, CancellationToken ct) =>
+            { await s.UnreleaseAsync(id, r, ct); return Results.NoContent(); })
+            .RequirePermission(key, PermissionAction.Update);
         group.MapPost("/equipment/{id:long}/recalculate", async (long id, SchedulingService s, CancellationToken ct) =>
                 Results.Ok(new { changed = await s.RecalculateAsync(id, ct) }))
             .RequirePermission(key, PermissionAction.Update);
@@ -164,8 +177,10 @@ public static class ScheduleEndpoints
             """
             SELECT ps.production_schedule_id, ps.equipment_id, ps.unit_process_id, up.unit_process_name, ps.work_date, ps.sequence_no,
                    ps.planned_lot_no, ps.planned_qty, ps.planned_duration_min, ps.duration_source, ps.planned_start_at, ps.planned_end_at,
-                   ps.status, ps.is_time_locked, ps.is_rework, ps.row_version
+                   ps.status, ps.is_time_locked, ps.is_rework, ps.row_version,
+                   w.production_work_id, w.lot_no AS work_lot_no, w.status AS work_status
               FROM production_schedule ps JOIN unit_process up ON up.unit_process_id = ps.unit_process_id
+              LEFT JOIN production_work w ON w.production_schedule_id = ps.production_schedule_id AND w.is_deleted = 0
              WHERE ps.equipment_id IN @equipmentIds AND ps.is_deleted = 0 AND ps.status <> 'CANCELLED'
                AND ps.planned_start_at < @rangeEnd AND ps.planned_end_at > @rangeStart
              ORDER BY ps.equipment_id, ps.planned_start_at

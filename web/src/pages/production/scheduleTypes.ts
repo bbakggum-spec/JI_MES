@@ -36,6 +36,10 @@ export interface BoardBlock {
   isTimeLocked: boolean
   isRework: boolean
   rowVersion: number
+  /** 작업지시(RELEASED)된 블록의 작업 LOT */
+  productionWorkId: number | null
+  workLotNo: string | null
+  workStatus: string | null
   items: BoardBlockItem[]
 }
 

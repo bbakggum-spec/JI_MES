@@ -23,6 +23,13 @@ public sealed record VersionedRequest(int RowVersion, string? Reason);
 
 public sealed record LockBlockRequest(int RowVersion, bool Locked, string? Reason);
 
+public sealed record ConfirmBlockRequest(int RowVersion, bool Confirmed, string? Reason);
+
+/// <param name="IncludePrevious">같은 설비 체인에서 이 계획보다 앞선 계획도 함께 작업지시</param>
+public sealed record ReleaseBlockRequest(int RowVersion, bool IncludePrevious, string? Reason);
+
+public sealed record ReleasedLot(long ProductionScheduleId, long ProductionWorkId, string LotNo);
+
 /// <summary>
 /// 스케줄 계산의 유일한 위치 (설계 §7, §15.1 S1). 모든 변경은
 /// 설비 행 잠금(<c>SELECT … FOR UPDATE</c>) → 사용자 의도 저장(row_version 확인·증가) → 설비 체인 재계산 → 커밋 → SignalR 순서로 한 트랜잭션에서 처리한다.
@@ -227,6 +234,155 @@ public sealed class SchedulingService(
         await PublishAsync([equipmentId], ct);
     }
 
+    /// <summary>계획 확정/확정 해제 (PLANNED ↔ CONFIRMED). 확정해도 재계산 대상이며 수정 가능 — 현장에 "확정된 계획"을 알리는 표시.</summary>
+    public async Task ConfirmAsync(long id, ConfirmBlockRequest r, CancellationToken ct)
+    {
+        await using var conn = await db.OpenAsync(ct);
+        await using var tx = await conn.BeginTransactionAsync(ct);
+        var equipmentId = await EquipmentOfAsync(conn, tx, id);
+        await LockEquipmentAsync(conn, tx, [equipmentId]);
+        var block = await LoadEditableAsync(conn, tx, id, r.RowVersion);
+        var status = r.Confirmed ? "CONFIRMED" : "PLANNED";
+        if (block.Status == status) return;
+
+        await conn.ExecuteVersionedUpdateAsync(
+            """
+            UPDATE production_schedule SET status = @status, updated_by = @UserId, row_version = row_version + 1
+             WHERE production_schedule_id = @Id AND row_version = @RowVersion
+            """,
+            new { Id = id, status, r.RowVersion, currentUser.UserId }, Table, id, tx);
+        await audit.WriteAsync(conn, tx, AuditAction.StatusChange, Table, id, new { status = block.Status }, new { status }, r.Reason);
+        await tx.CommitAsync(ct);
+        await PublishAsync([equipmentId], ct);
+    }
+
+    /// <summary>
+    /// 작업지시 (RELEASE, 설계 §4) — 계획 블록 1개 = 작업 LOT 1개를 "배정(ALLOCATED)" 상태로 만든다.
+    /// LOT번호 = 설정 lot.number_format (작업일, 설비 이니셜, 설비·작업일 순번). includePrevious 면 같은 설비 체인에서 앞선 계획도 함께.
+    /// 작업지시된 블록은 재계산에서 빠지고(시각 고정), 체인 시작점은 그 블록의 계획 종료 뒤가 된다.
+    /// </summary>
+    public async Task<IReadOnlyList<ReleasedLot>> ReleaseAsync(long id, ReleaseBlockRequest r, CancellationToken ct)
+    {
+        await using var conn = await db.OpenAsync(ct);
+        await using var tx = await conn.BeginTransactionAsync(ct);
+        var equipmentId = await EquipmentOfAsync(conn, tx, id);
+        await LockEquipmentAsync(conn, tx, [equipmentId]);
+        var block = await LoadEditableAsync(conn, tx, id, r.RowVersion);
+        var chain = await LoadChainAsync(conn, tx, equipmentId);
+        var targets = r.IncludePrevious
+            ? chain.TakeWhile(b => b.ProductionScheduleId != id).Append(block).ToList()
+            : [block];
+
+        var equipment = await conn.QuerySingleAsync<EquipmentInfoRow>(
+            "SELECT equipment_name, COALESCE(equipment_initial, equipment_code) AS initial FROM equipment WHERE equipment_id = @equipmentId",
+            new { equipmentId }, tx);
+        var lotFormat = settings.GetString(SettingKeys.LotNumberFormat);
+        var tokens = new Dictionary<string, string> { ["EQUIP"] = equipment.Initial };
+        var now = Now();
+        var lots = new List<ReleasedLot>();
+        foreach (var b in targets)
+        {
+            var route = await conn.QuerySingleAsync<RouteInfoRow>(
+                """
+                SELECT COUNT(DISTINCT soi.heat_process_version_id) AS route_count, MIN(soi.heat_process_version_id) AS route_id,
+                       MIN(soi.heat_process_name_snapshot) AS route_name, COUNT(*) AS item_count,
+                       COALESCE(MAX(op.is_main_process), 0) AS is_main_process,
+                       (SELECT unit_process_name FROM unit_process WHERE unit_process_id = @UnitProcessId) AS unit_process_name
+                  FROM production_schedule_item psi
+                  JOIN sales_order_item soi ON soi.sales_order_item_id = psi.sales_order_item_id
+                  LEFT JOIN heat_process_operation op ON op.heat_process_version_id = soi.heat_process_version_id AND op.unit_process_id = @UnitProcessId
+                 WHERE psi.production_schedule_id = @ProductionScheduleId
+                """, new { b.ProductionScheduleId, b.UnitProcessId }, tx);
+            if (route.ItemCount == 0)
+                throw new BusinessRuleException("BLOCK_EMPTY", "수주가 담기지 않은 계획은 작업지시할 수 없습니다.");
+
+            // 순번: 이 설비·작업일의 마지막 LOT 순번 다음 (취소된 LOT 번호도 다시 쓰지 않는다)
+            var seq = await conn.ExecuteScalarAsync<int>(
+                "SELECT COALESCE(MAX(lot_seq), 0) FROM production_work WHERE equipment_id = @equipmentId AND work_date = @WorkDate",
+                new { equipmentId, b.WorkDate }, tx);
+            string lotNo;
+            do lotNo = NumberFormat.Format(lotFormat, DateOnly.FromDateTime(b.WorkDate), ++seq, tokens);
+            while (await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM production_work WHERE lot_no = @lotNo", new { lotNo }, tx) > 0);
+
+            var workId = await conn.ExecuteScalarAsync<long>(
+                """
+                INSERT INTO production_work (lot_no, lot_seq, production_schedule_id, unit_process_id, equipment_id, is_main_process,
+                       heat_process_version_id, work_date, status, expected_duration_min, is_rework,
+                       unit_process_name_snapshot, equipment_name_snapshot, heat_process_name_snapshot, created_by, updated_by)
+                VALUES (@lotNo, @seq, @ProductionScheduleId, @UnitProcessId, @equipmentId, @isMain,
+                        @routeId, @WorkDate, 'ALLOCATED', @PlannedDurationMin, @isRework,
+                        @unitName, @equipmentName, @routeName, @UserId, @UserId);
+                SELECT LAST_INSERT_ID();
+                """,
+                new
+                {
+                    lotNo, seq, b.ProductionScheduleId, b.UnitProcessId, equipmentId, isMain = route.IsMainProcess,
+                    routeId = route.RouteCount == 1 ? route.RouteId : null, b.WorkDate, b.PlannedDurationMin,
+                    isRework = await conn.ExecuteScalarAsync<bool>("SELECT is_rework FROM production_schedule WHERE production_schedule_id = @ProductionScheduleId", b, tx),
+                    unitName = route.UnitProcessName, equipmentName = equipment.EquipmentName,
+                    routeName = route.RouteCount == 1 ? route.RouteName : null, currentUser.UserId,
+                }, tx);
+            await conn.ExecuteAsync(
+                "INSERT INTO production_work_event (production_work_id, event_type, event_at, created_by) VALUES (@workId, 'ALLOCATE', @now, @UserId)",
+                new { workId, now, currentUser.UserId }, tx);
+            await conn.ExecuteAsync(
+                """
+                UPDATE production_schedule SET status = 'RELEASED', updated_by = @UserId, row_version = row_version + 1
+                 WHERE production_schedule_id = @ProductionScheduleId
+                """, new { b.ProductionScheduleId, currentUser.UserId }, tx);
+            await audit.WriteAsync(conn, tx, AuditAction.StatusChange, Table, b.ProductionScheduleId,
+                new { status = b.Status }, new { status = "RELEASED", production_work_id = workId, lot_no = lotNo }, r.Reason);
+            lots.Add(new ReleasedLot(b.ProductionScheduleId, workId, lotNo));
+        }
+        await RecalculateCoreAsync(conn, tx, equipmentId);
+        await tx.CommitAsync(ct);
+        await PublishAsync([equipmentId], ct);
+        return lots;
+    }
+
+    /// <summary>
+    /// 작업지시 취소 — 투입 전(ALLOCATED) LOT 만. 작업 LOT 은 취소 상태로 남기고(감사), 계획은 확정 상태로 돌아가 다시 재계산된다.
+    /// LOT번호는 다시 쓰지 않는다 (다음 작업지시는 새 순번).
+    /// </summary>
+    public async Task UnreleaseAsync(long id, VersionedRequest r, CancellationToken ct)
+    {
+        await using var conn = await db.OpenAsync(ct);
+        await using var tx = await conn.BeginTransactionAsync(ct);
+        var equipmentId = await EquipmentOfAsync(conn, tx, id);
+        await LockEquipmentAsync(conn, tx, [equipmentId]);
+        var block = await conn.QuerySingleOrDefaultAsync<BlockRow>(
+            $"SELECT {BlockColumns} FROM production_schedule WHERE production_schedule_id = @id AND is_deleted = 0 FOR UPDATE", new { id }, tx)
+            ?? throw new NotFoundException(Table, id);
+        if (block.RowVersion != r.RowVersion) throw new ConcurrencyConflictException(Table, id);
+        if (block.Status != "RELEASED") throw new BusinessRuleException("BLOCK_NOT_RELEASED", "작업지시된 계획이 아닙니다.");
+        var work = await conn.QuerySingleOrDefaultAsync<WorkStatusRow>(
+            "SELECT production_work_id, lot_no, status FROM production_work WHERE production_schedule_id = @id AND is_deleted = 0 FOR UPDATE", new { id }, tx);
+        if (work is not null && work.Status != "ALLOCATED")
+            throw new BusinessRuleException("WORK_STARTED", $"작업 LOT {work.LotNo} 은 이미 투입되어 작업지시를 취소할 수 없습니다.");
+
+        var now = Now();
+        if (work is not null)
+        {
+            await conn.ExecuteAsync(
+                """
+                UPDATE production_work SET status = 'CANCELLED', production_schedule_id = NULL, is_deleted = 1, deleted_at = @now,
+                       deleted_by = @UserId, updated_by = @UserId, row_version = row_version + 1
+                 WHERE production_work_id = @ProductionWorkId
+                """, new { work.ProductionWorkId, now, currentUser.UserId }, tx);
+            await conn.ExecuteAsync(
+                "INSERT INTO production_work_event (production_work_id, event_type, event_at, created_by, remark) VALUES (@ProductionWorkId, 'CANCEL', @now, @UserId, @Reason)",
+                new { work.ProductionWorkId, now, currentUser.UserId, r.Reason }, tx);
+        }
+        await conn.ExecuteAsync(
+            "UPDATE production_schedule SET status = 'CONFIRMED', updated_by = @UserId, row_version = row_version + 1 WHERE production_schedule_id = @id",
+            new { id, currentUser.UserId }, tx);
+        await RecalculateCoreAsync(conn, tx, equipmentId);
+        await audit.WriteAsync(conn, tx, AuditAction.StatusChange, Table, id,
+            new { status = "RELEASED", lot_no = work?.LotNo }, new { status = "CONFIRMED" }, r.Reason);
+        await tx.CommitAsync(ct);
+        await PublishAsync([equipmentId], ct);
+    }
+
     /// <summary>설비 체인 재계산. 바뀐 것이 있으면 true (SignalR 알림).</summary>
     public async Task<bool> RecalculateAsync(long equipmentId, CancellationToken ct)
     {
@@ -291,7 +447,7 @@ public sealed class SchedulingService(
         var lastLotSeq = (await conn.QueryAsync<LastLotSeqRow>(
             """
             SELECT work_date, CAST(COALESCE(MAX(lot_seq), 0) AS SIGNED) AS last_seq FROM production_work
-             WHERE equipment_id = @equipmentId AND work_date IN @workDates AND is_deleted = 0
+             WHERE equipment_id = @equipmentId AND work_date IN @workDates   -- 취소된 LOT 순번도 다시 쓰지 않음 (작업지시와 같은 기준)
              GROUP BY work_date
             """, new { equipmentId, workDates }, tx)).ToDictionary(x => x.WorkDate, x => (int)x.LastSeq);
         var lotFormat = settings.GetString(SettingKeys.ScheduleTempLotPrefix) + settings.GetString(SettingKeys.LotNumberFormat);
@@ -456,6 +612,29 @@ public sealed class SchedulingService(
         public long ProductionScheduleId { get; init; }
         public DateTime WorkDate { get; init; }
         public DateTime PlannedStartAt { get; init; }
+    }
+
+    private sealed class EquipmentInfoRow
+    {
+        public string EquipmentName { get; init; } = "";
+        public string Initial { get; init; } = "";
+    }
+
+    private sealed class RouteInfoRow
+    {
+        public long RouteCount { get; init; }
+        public long? RouteId { get; init; }
+        public string? RouteName { get; init; }
+        public long ItemCount { get; init; }
+        public bool IsMainProcess { get; init; }
+        public string? UnitProcessName { get; init; }
+    }
+
+    private sealed class WorkStatusRow
+    {
+        public long ProductionWorkId { get; init; }
+        public string LotNo { get; init; } = "";
+        public string Status { get; init; } = "";
     }
 
     private sealed class LastLotSeqRow

@@ -186,7 +186,20 @@ export default function SchedulePage() {
         }), undefined, b.isTimeLocked ? '고정을 해제했습니다.' : '시각을 고정했습니다.')}
         onCancel={(b) => void run(() => api(`/api/schedule/blocks/${b.productionScheduleId}/cancel`, {
           method: 'POST', body: { rowVersion: b.rowVersion },
-        }), undefined, '계획을 취소했습니다. 수량은 배정 대기로 돌아갑니다.')} />
+        }), undefined, '계획을 취소했습니다. 수량은 배정 대기로 돌아갑니다.')}
+        onConfirm={(b) => void run(() => api(`/api/schedule/blocks/${b.productionScheduleId}/confirm`, {
+          method: 'PUT', body: { rowVersion: b.rowVersion, confirmed: b.status !== 'CONFIRMED' },
+        }), undefined, b.status === 'CONFIRMED' ? '확정을 해제했습니다.' : '계획을 확정했습니다.')}
+        onRelease={(b, includePrevious) => void run(async () => {
+          const lots = await api<{ lotNo: string }[]>(`/api/schedule/blocks/${b.productionScheduleId}/release`, {
+            method: 'POST', body: { rowVersion: b.rowVersion, includePrevious },
+          })
+          message.success(`작업지시: ${lots.map((l) => l.lotNo).join(', ')}`)
+        })}
+        onUnrelease={(b) => void run(() => api(`/api/schedule/blocks/${b.productionScheduleId}/unrelease`, {
+          method: 'POST', body: { rowVersion: b.rowVersion },
+        }), undefined, '작업지시를 취소했습니다. 계획은 확정 상태로 돌아갑니다.')}
+        workStatusName={(s) => codes.name('WORK_STATUS', s)} />
 
       {/* 배정 대기를 계획 블록 위에 놓았을 때 */}
       <Modal open={dropChoice !== null} title="배정 방법" onCancel={() => setDropChoice(null)} footer={null} destroyOnHidden>
@@ -230,11 +243,33 @@ function BlockDrawer(props: {
   onClose: () => void
   onLock: (b: BoardBlock) => void
   onCancel: (b: BoardBlock) => void
+  onConfirm: (b: BoardBlock) => void
+  onRelease: (b: BoardBlock, includePrevious: boolean) => void
+  onUnrelease: (b: BoardBlock) => void
+  workStatusName: (s: string) => string
 }) {
   const b = props.block
   const editable = b && (b.status === 'PLANNED' || b.status === 'CONFIRMED')
+  const releasedWaiting = b?.status === 'RELEASED' && b.workStatus === 'ALLOCATED'
   return (
-    <Drawer open={b !== null} onClose={props.onClose} title={b?.plannedLotNo ?? '계획'} size="large"
+    <Drawer open={b !== null} onClose={props.onClose} title={b?.workLotNo ?? b?.plannedLotNo ?? '계획'} size="large"
+      footer={b && releasedWaiting && props.canUpdate ? (
+        <Popconfirm title="작업지시를 취소할까요?" description={`작업 LOT ${b.workLotNo} 은 취소되고 계획은 확정 상태로 돌아갑니다.`}
+          onConfirm={() => props.onUnrelease(b)}>
+          <Button danger loading={props.busy}>작업지시 취소</Button>
+        </Popconfirm>
+      ) : b && editable && props.canUpdate && (
+        <Space wrap>
+          <Button onClick={() => props.onConfirm(b)} loading={props.busy}>{b.status === 'CONFIRMED' ? '확정 해제' : '계획 확정'}</Button>
+          <Popconfirm title="작업지시할까요?" description="작업 LOT 이 배정 상태로 만들어지고, 이 계획은 더 이상 재계산으로 움직이지 않습니다."
+            onConfirm={() => props.onRelease(b, false)}>
+            <Button type="primary" loading={props.busy}>작업지시</Button>
+          </Popconfirm>
+          <Popconfirm title="이 설비에서 이 계획까지 모두 작업지시할까요?" onConfirm={() => props.onRelease(b, true)}>
+            <Button loading={props.busy}>앞 계획까지 작업지시</Button>
+          </Popconfirm>
+        </Space>
+      )}
       extra={b && editable && (
         <Space>
           {props.canUpdate && (
@@ -253,6 +288,7 @@ function BlockDrawer(props: {
         <>
           <Descriptions column={1} size="small" bordered items={[
             { label: '상태', children: props.statusName(b.status) },
+            ...(b.workLotNo ? [{ label: '작업 LOT', children: `${b.workLotNo} (${props.workStatusName(b.workStatus ?? '')})` }] : []),
             { label: '단위공정', children: b.unitProcessName },
             { label: '작업일 · 순번', children: `${dayjs(b.workDate).format('YYYY-MM-DD')} · ${b.sequenceNo}` },
             { label: '계획 시각', children: `${dayjs(b.plannedStartAt).format('MM-DD HH:mm')} ~ ${dayjs(b.plannedEndAt).format('MM-DD HH:mm')}` },
