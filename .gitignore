@@ -1,0 +1,30 @@
+# 개발 DB 데이터 / 로그
+db/dev/.devdata/
+db/dev/*.log
+
+# .NET
+bin/
+obj/
+*.user
+.vs/
+*.suo
+appsettings.Development.json
+appsettings.*.local.json
+
+# Node / React
+node_modules/
+dist/
+.vite/
+*.local
+.env
+.env.*
+
+# OS / 에디터
+Thumbs.db
+.DS_Store
+.idea/
+*.swp
+
+# 임시 출력물
+*.tmp
+output/
