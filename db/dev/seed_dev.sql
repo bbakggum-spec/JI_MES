@@ -41,11 +41,19 @@ SELECT hv.heat_process_version_id, v.seq, u.unit_process_id, v.main
   JOIN unit_process u ON u.unit_process_code = v.up
   CROSS JOIN heat_process_version hv;
 
-INSERT INTO part (part_code, part_name, part_number) VALUES
- ('P-GEAR-A', '헬리컬 기어 A', 'HG-100'),
- ('P-SHAFT-B', '출력 샤프트 B', 'OS-220'),
- ('P-PIN-C', '피니언 C', 'PN-030'),
- ('P-RING-D', '링기어 D', 'RG-410');
+INSERT INTO part (part_code, part_name, part_number, material, unit_weight, unit_price, hardness, effective_hardening_depth) VALUES
+ ('P-GEAR-A', '헬리컬 기어 A', 'HG-100', 'SCM420H', 0.85, 1200, 'HRC 58~62', '0.8~1.2'),
+ ('P-SHAFT-B', '출력 샤프트 B', 'OS-220', 'SCM415', 2.4, 3500, 'HRC 58~63', '1.0~1.4'),
+ ('P-PIN-C', '피니언 C', 'PN-030', 'SCM420H', 0.3, 800, 'HRC 57~62', '0.6~0.9'),
+ ('P-RING-D', '링기어 D', 'RG-410', 'SCM822H', 6.5, 9000, 'HRC 58~62', '1.2~1.6');
+
+-- 거래처 품목 (수주 등록 화면의 품목 후보) + 품목 기본 공정
+INSERT INTO part_customer (part_id, customer_id, customer_part_code, is_customer_lot_required)
+SELECT p.part_id, c.customer_id, CONCAT(c.customer_code, '-', p.part_number), c.customer_code = 'C-HD'
+  FROM part p JOIN customer c
+ WHERE (c.customer_code, p.part_code) IN (('C-HD','P-GEAR-A'), ('C-HD','P-SHAFT-B'), ('C-SM','P-RING-D'), ('C-SM','P-PIN-C'), ('C-DY','P-GEAR-A'), ('C-DY','P-SHAFT-B'));
+INSERT INTO part_heat_process (part_id, heat_process_id, is_default)
+SELECT p.part_id, h.heat_process_id, 1 FROM part p JOIN heat_process h ON h.heat_process_code = 'HP-CARB';
 
 -- 작업표준: C 는 표준 없음 (생산계획에서 작업시간 입력 흐름 확인용)
 INSERT INTO standard (standard_code, standard_name, part_id, unit_process_id, equipment_type_id)
@@ -66,9 +74,11 @@ SELECT s.standard_id, 1,
 INSERT INTO sales_order (sales_order_no, order_date, due_date, customer_id)
 SELECT CONCAT('SO-DEV-', c.customer_code), CURDATE(), CURDATE() + INTERVAL c.customer_id + 2 DAY, c.customer_id FROM customer c;
 
-INSERT INTO sales_order_item (order_item_no, sales_order_id, line_no, part_id, heat_process_version_id, order_qty, priority, part_name_snapshot)
+INSERT INTO sales_order_item (order_item_no, sales_order_id, line_no, part_id, heat_process_version_id, order_qty, priority,
+       part_name_snapshot, part_number_snapshot, material_snapshot, heat_process_name_snapshot, unit_weight, order_weight, unit_price)
 SELECT CONCAT('I', DATE_FORMAT(CURDATE(), '%y%m%d'), '-', LPAD(v.n, 3, '0')), so.sales_order_id, v.line, p.part_id,
-       (SELECT heat_process_version_id FROM heat_process_version LIMIT 1), v.qty, v.pri, p.part_name
+       (SELECT heat_process_version_id FROM heat_process_version LIMIT 1), v.qty, v.pri,
+       p.part_name, p.part_number, p.material, '침탄 소입소려', p.unit_weight, v.qty * p.unit_weight, p.unit_price
   FROM (SELECT 1 n, 'C-HD' c, 1 line, 'P-GEAR-A' part, 1000 qty, 1 pri
         UNION ALL SELECT 2, 'C-HD', 2, 'P-SHAFT-B', 300, 2
         UNION ALL SELECT 3, 'C-SM', 1, 'P-RING-D', 120, 3

@@ -1,4 +1,4 @@
-# bbakggum DB 구조개편 설계안 V3.14
+# bbakggum DB 구조개편 설계안 V3.15
 
 | 항목 | 내용 |
 |-|-|
@@ -20,6 +20,7 @@
 | V3.5 | 2026-09-30 | **모든 출력물 = 사용자 엑셀 양식 등록 방식**, 출력 용도 **사용자 확장**(`print_purpose`), 양식 파일 **DB 버전 보관**, 치환자 사전(`print_field`), 출력 이력(`print_log`), **구현 시 주의사항**(§15: 스케줄·진행현황, 엑셀 양식 출력 — 기존 소스 분석), 기존 DB 보존 + 신규 구축 원칙 명시 |
 | V3.6 | 2026-09-30 | 양식 등록 방식 **2가지**: EXCEL(사용자 수정 양식) + **FIXED**(코드 고정 레이아웃 — 거래명세표 등 구 PrintDoc 7종, 레이아웃 옵션은 관리자 조정), **하드코딩 → 관리자 설정**(§15.4, `system_setting` 확장·초기값, 로직 참조 공통코드, 단말별 프린터 `workstation_print_setting`, 도장 이미지 DB 보관) |
 | V3.8 | 2026-09-30 | **1단계 기존 폼 분석 반영** (`docs/legacy_forms/`): 입고번호 = 스캔 수주번호(`order_item_no`), 수주 행 요구사항 Snapshot·우선순위·별도관리·고객 작업지시번호, 품목 단가 적용 구분(EA/KG/CHARGE), 설비당 투입 중 작업 1건, 한 LOT에 같은 수주 1회, 관리항목 템플릿(`step_template_condition`), 검사구분(입고/공정/출하)·재검사·**검사 결과 공통 적용**, 부적합 처리구분(재처리/출하/선별/보류/폐기/반송), 출하 시험편·거래처 Snapshot·전표 단위 마감 상태(미마감/마감/이월), 공통 첨부(`attachment`), 설정·공통코드 추가. 배정 병합 시 최대 작업시간, 지연 시 뒤 배정 계획시각 자동 이동 |
+| V3.15 | 2026-10-01 | **6단계 ① 수주(입고)** (§23): 묶음 1건 + 행마다 입고번호, 품목 스펙 Snapshot, 거래처 품목 후보, 계획·투입·출하 수량 이하로 수량 축소·공정 변경·취소 금지. 번호 부여 공용 `DocumentNumbers`(이름 잠금). 설정 `sales_order.number_format`·`sales_order.list_default_days`, 공통코드 `ORDER_STATUS`, 메뉴 `sales.order` |
 | V3.14 | 2026-10-01 | **작업표준 입력표 가변식** (§2.1·§22.5, 구 `F_WorkStandardAddForm` 비교): 스텝(열)·관리항목(행)을 작업표준 Version 마다 직접 보관(`standard_version_step`·`standard_version_item`), 조건 = (스텝 순서, 항목). 단계 템플릿은 입력표 **초기값**(불러오기·"이 구성을 템플릿으로 저장"). `production_work_condition` 단계 키 = 스텝 순서(템플릿 id 참조 제거). 입력표에서 조건 항목 즉석 등록. 추가·수정 입력은 가운데 별도 창, 좌측 메뉴 단독 스크롤 |
 | V3.13 | 2026-09-30 | **5단계 기준정보** (§22, §12 확인 ⑧⑨): 단순 기준정보 14종 = 정의 기반 범용 API·화면(정의 ↔ DDL 대조 테스트), 사용자·역할 권한 관리, 품목(거래처 품번·공정·도면/이미지 첨부·성적서 양식 연결·이력), 공정 경로·단계 템플릿·작업표준(행렬·버전·복사), 검사기준(버전·항목·측정 위치). DDL: 메뉴 master.* 19개, 공통코드 `CUSTOMER_TYPE`·`DAY_TYPE`·`CONDITION_VALUE_TYPE`·`ATTACHMENT_KIND`·`RANGE_TYPE`, 설정 `file.max_attachment_mb`·`standard.code_format` |
 | V3.12 | 2026-09-30 | **4단계 ② 출력 엔진** (§21, §12 확인 4건): EXCEL(치환·반복행·이미지·구 좌표 키 호환 → 서버 LibreOffice PDF) / FIXED(거래명세표 렌더러 + 옵션), 양식 선택 단일 함수, 발행 이력·재발행, 양식 관리 화면. DDL: `print_template.is_default`(용도 기본 양식), `shipment.supply_amount`·`vat_amount`·`total_amount`(F2), 치환자 사전 초기 데이터(검사 대상·출하 전표), 메뉴 `system.print`, 고정 양식 글꼴 = 설치 이름 목록("굴림체", "맑은 고딕"), 거래명세표 여백 20 |
@@ -998,3 +999,34 @@ POST /api/print/issue {purposeCode, sourceId, printTemplateId?}
 - 검증은 행별 오류를 모아 400 (하한·상한 필요, 하한 > 상한, 시료수 ≥ 1 …).
 - **이관 주의 (8단계):** 구 `t_inspectioncriteria.itemtype`은 `"0"~"5"` 또는 이름 — `INSPECTION_ITEM_TYPE` 코드로 변환해야 한다. 변환 안 된 값은 화면에서 붉게 "'경도' → 다시 선택"으로 표시되고 저장 시 거부된다.
 
+---
+
+# 23. 업무 (6단계)
+
+## 23.1 나눔
+
+| 순서 | 범위 | 상태 |
+|-|-|-|
+| 6-① | 수주(입고) 등록·목록·수정·취소 | V3.15 완료 |
+| 6-② | 계획 확정·작업지시(RELEASE → 작업 LOT 배정), 재작업 계획 | 대기 |
+| 6-③ | 투입·작업 (수주번호/주 LOT 스캔, 표준 확정·조건 복사, 시작·완료, 불량 수량) | 대기 |
+| 6-④ | 검사·성적서 (검사 1회 : 대상 N, 판정, 대상별 성적서 발행) | 대기 |
+| 6-⑤ | 부적합·재작업 | 대기 |
+| 6-⑥ | 출하·마감 (전표, 금액 계산, 업체별 마감·이월) | 대기 |
+
+## 23.2 수주(입고) — 6-①
+
+| 화면 (권한 `sales.order`) | API | 규칙 |
+|-|-|-|
+| 영업 > 수주(입고) 목록 | `GET /api/sales-orders/items?from&to&customerId&search&openOnly&includeCancelled` | 입고 **행** 단위 (입고번호 = 스캔하는 수주번호). 기본 기간 = 오늘 − `sales_order.list_default_days`. 투입(주공정)·출하·출하 잔량은 VIEW 계산 |
+| 수주 등록 창 | `GET …/part-candidates?customerId&search&all`, `POST /api/sales-orders` | 거래처 품목(`part_customer`)을 담고 행마다 수량·단가·고객LOT·코일·작업지시번호·우선순위·별도관리. 같은 품목을 LOT별로 여러 행. 저장 = 묶음(`sales_order_no`, 설정 `sales_order.number_format`) 1건 + **행마다 입고번호**(`sales_order.item_number_format`, 입고일 기준 순번) |
+| 입고 행 창 (보기·수정·취소) | `GET/PUT …/items/{id}`, `POST …/items/{id}/cancel` | 수정·취소는 묶음 `row_version` (같은 묶음의 행을 동시에 고치면 409) |
+
+- **Snapshot:** 품명·품번·규격·기종·재질·요구경도·심부경도·경화층·조직·단위중량·단가 구분을 행에 복사 (구 IncomeAddService와 같음). 중량 = 수량 × 단중. 단가는 품목 값 기본, 행에서 수정 가능.
+- **공정:** 선택한 공정 경로의 **현재 Version**을 참조 (`heat_process_version_id`). 선택 없으면 품목 기본 공정(`part_heat_process.is_default`). 공정이 없으면 "미지정"으로 붉게 표시 — 생산계획 배정 대기에 나오지 않는다.
+- **거래처 품목 필수 LOT:** `part_customer.is_customer_lot_required` 품목은 고객LOT 없이 등록 불가 (화면 검사).
+- **사용 중 보호:** 단위공정별 계획·투입 수량 중 최대, 출하+시험편 합 = 사용 수량. 수량은 사용 수량 미만으로 줄일 수 없고(`QTY_BELOW_USED`), 계획·투입이 있으면 공정 변경(`ROUTE_IN_USE`)·취소(`ORDER_ITEM_IN_USE`) 불가. 구 목록 "삭제"는 **취소**(`status = CANCELLED`, 사유 감사 기록)로 바꿈 — 행이 모두 취소되면 묶음도 취소.
+- **번호 부여 (`Infrastructure/Numbering/DocumentNumbers.cs`):** 형식 설정의 `{SEQ}` 자리만 다른 같은 접두 번호 수 + 1부터 빈 번호. 같은 번호 체계는 `GET_LOCK`으로 직렬화하고 잠금 읽기로 최신 커밋을 본다 — 동시 등록 테스트(6건 동시)로 확인. 출하·검사번호도 이것을 쓴다.
+- 구 "별도관리는 수정 모드에서 변경 불가"는 이유가 없어(라벨 재출력으로 해결) 수정 가능으로 둠.
+
+**남은 일 (6-①):** 저장 후 **공정이동표·제품라벨** 즉시 출력 — FIXED 렌더러 `PROCESS_SHEET`·`PRODUCT_LABEL`과 단말 자동 인쇄는 출력 방식(브라우저 인쇄) 결정과 함께 (§21.5). 엑셀 내보내기.

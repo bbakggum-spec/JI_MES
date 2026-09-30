@@ -25,6 +25,9 @@ public static class SettingKeys
     public const string FileStorageRoot = "file.storage_root";
     public const string FileMaxAttachmentMb = "file.max_attachment_mb";
     public const string StandardCodeFormat = "standard.code_format";
+    public const string SalesOrderNumberFormat = "sales_order.number_format";
+    public const string SalesOrderItemNumberFormat = "sales_order.item_number_format";
+    public const string SalesOrderListDefaultDays = "sales_order.list_default_days";
 
     /// <summary>
     /// 로그인 사용자 누구나 읽을 수 있는 설정 (GET /api/client-settings). 웹 화면 동작에 필요한 값만 둔다.
@@ -35,5 +38,6 @@ public static class SettingKeys
         ScheduleDayStartTime,
         ScheduleRefreshIntervalSec,
         ScheduleBoardDays,
+        SalesOrderListDefaultDays,
     ];
 }

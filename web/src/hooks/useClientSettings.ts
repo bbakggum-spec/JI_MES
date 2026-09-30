@@ -16,5 +16,6 @@ export function useClientSettings() {
     dayStartTime: data?.['schedule.day_start_time'],
     refreshIntervalMs: data ? Number(data['schedule.refresh_interval_sec']) * 1000 : undefined,
     boardDays: data ? Number(data['schedule.board_days']) : undefined,
+    orderListDays: data ? Number(data['sales_order.list_default_days']) : undefined,
   }
 }

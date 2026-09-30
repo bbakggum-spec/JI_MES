@@ -9,6 +9,7 @@ namespace JiMes.Api.Infrastructure.Security;
 /// <summary>API 권한 키 = menu.menu_key. DDL 초기 데이터(§9.8)에 있어야 한다 (테스트로 확인).</summary>
 public static class MenuKeys
 {
+    public const string SalesOrder = "sales.order";
     public const string ProductionSchedule = "production.schedule";
     public const string MasterPart = "master.part";
     public const string MasterHeatProcess = "master.heat_process";

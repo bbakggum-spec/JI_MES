@@ -2064,6 +2064,8 @@ INSERT INTO system_setting (setting_key, category, setting_name, value_type, def
  ('file.max_attachment_mb',           '파일',   '첨부 파일 최대 크기',               'INT',     '20',    1, 200, 'MB', '도면·이미지 등 attachment 1건 — DB max_allowed_packet 이하', 0, 20),
  ('log.retention_days',               '시스템', '로그 보관 일수',                    'INT',     '7',     1, 365, '일', '구 AppLogger 7일', 1, 10),
  ('work.complete_time_round_min',     '생산',   '완료시각 단위 (내림)',              'INT',     '5',     1, 60, '분', '구 RoundToNearest5Minutes (실제 동작은 내림)', 0, 10),
+ ('sales_order.number_format',        '영업',   '수주 묶음 번호 형식',               'STRING',  'SO{yyMMdd}-{SEQ:000}', NULL, NULL, NULL, '한 번에 등록한 입고 행들의 묶음 (구는 묶음 없음)', 0, 25),
+ ('sales_order.list_default_days',    '영업',   '수주 목록 기본 조회 기간',          'INT',     '31',    1, 366, '일', '입고일 기준 오늘부터 과거로', 0, 35),
  ('sales_order.item_number_format',   '영업',   '입고(수주)번호 형식',               'STRING',  'I{yyMMdd}-{SEQ:000}', NULL, NULL, NULL, '구 IncomeAddService', 0, 30),
  ('shipment.number_format',           '영업',   '출하 전표번호 형식',                'STRING',  'O{yyMMdd}-{SEQ:000}', NULL, NULL, NULL, '구 OutcomeAddService', 0, 40),
  ('standard.code_format',             '생산',   '작업표준 코드 형식',                'STRING',  'STD-{PART}-{UNIT}-{SEQ:00}', NULL, NULL, NULL, '치환: {PART} 품목 코드, {UNIT} 단위공정 코드, {SEQ:00} 같은 품목·공정 순번', 0, 20),
@@ -2089,7 +2091,8 @@ INSERT INTO common_code_group (group_code, group_name, description) VALUES
  ('DAY_TYPE',            '달력 일 구분',  'work_calendar.day_type CHECK 값'),
  ('CONDITION_VALUE_TYPE','조건값 형식',   'condition_item.value_type CHECK 값'),
  ('ATTACHMENT_KIND',     '첨부 종류',     'attachment.attachment_kind — 구 PC 로컬 폴더(PartDrawingFolder 등) 대체'),
- ('RANGE_TYPE',          '판정 방식',     'inspection_criteria.range_type — 측정값 자동 판정 기준');
+ ('RANGE_TYPE',          '판정 방식',     'inspection_criteria.range_type — 측정값 자동 판정 기준'),
+ ('ORDER_STATUS',        '수주 상태',     'sales_order / sales_order_item.status CHECK 값');
 
 INSERT INTO common_code (common_code_group_id, code, code_name, sort_order, attr_json, is_system)
 SELECT g.common_code_group_id, v.code, v.name, v.ord, v.attr, 1
@@ -2150,7 +2153,12 @@ SELECT g.common_code_group_id, v.code, v.name, v.ord, v.attr, 1
         UNION ALL SELECT 'RANGE_TYPE', 'BETWEEN', '범위 (하한~상한)', 1, '{"lower":true,"upper":true}'
         UNION ALL SELECT 'RANGE_TYPE', 'MIN', '하한 이상', 2, '{"lower":true}'
         UNION ALL SELECT 'RANGE_TYPE', 'MAX', '상한 이하', 3, '{"upper":true}'
-        UNION ALL SELECT 'RANGE_TYPE', 'NONE', '기록만 (판정 없음)', 4, NULL) v
+        UNION ALL SELECT 'RANGE_TYPE', 'NONE', '기록만 (판정 없음)', 4, NULL
+        UNION ALL SELECT 'ORDER_STATUS', 'OPEN', '접수', 1, '{"color":"#1677FF"}'
+        UNION ALL SELECT 'ORDER_STATUS', 'IN_PROGRESS', '진행', 2, '{"color":"#FA8C16"}'
+        UNION ALL SELECT 'ORDER_STATUS', 'COMPLETED', '완료', 3, '{"color":"#52C41A"}'
+        UNION ALL SELECT 'ORDER_STATUS', 'CLOSED', '마감', 4, '{"color":"#8C8C8C"}'
+        UNION ALL SELECT 'ORDER_STATUS', 'CANCELLED', '취소', 5, '{"color":"#BFBFBF"}') v
   JOIN common_code_group g ON g.group_code = v.grp;
 
 -- =====================================================================
@@ -2199,6 +2207,7 @@ INSERT INTO menu (menu_key, menu_name, parent_menu_id, route, sort_order) VALUES
 INSERT INTO menu (menu_key, menu_name, parent_menu_id, route, sort_order)
 SELECT v.k, v.n, p.menu_id, v.r, v.o
   FROM (SELECT 'production.schedule' k, '생산계획' n, 'production' parent, '/production/schedule' r, 10 o
+        UNION ALL SELECT 'sales.order',             '수주(입고)',    'sales', '/sales/orders', 10
         UNION ALL SELECT 'master.company',          '자사 정보',     'master', '/master/company', 10
         UNION ALL SELECT 'master.customer',         '거래처',        'master', '/master/customer', 20
         UNION ALL SELECT 'master.part',             '품목',          'master', '/master/part', 25

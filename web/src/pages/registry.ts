@@ -13,6 +13,7 @@ type Page = LazyExoticComponent<ComponentType<PageProps>>
  * 새 화면: DDL §9.8 메뉴 추가 → 여기 등록. 단순 기준정보(master.*)는 등록 없이 범용 화면 (API 정의 MasterCatalog).
  */
 export const pageRegistry: Record<string, Page> = {
+  'sales.order': lazy(() => import('./sales/SalesOrdersPage')),
   'production.schedule': lazy(() => import('./production/SchedulePage')),
   'master.part': lazy(() => import('./master/PartsPage')),
   'master.heat_process': lazy(() => import('./master/HeatProcessesPage')),

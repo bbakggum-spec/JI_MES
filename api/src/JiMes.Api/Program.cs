@@ -8,6 +8,7 @@ using JiMes.Api.Features.Master;
 using JiMes.Api.Features.Master.Parts;
 using JiMes.Api.Features.Master.Process;
 using JiMes.Api.Features.Printing;
+using JiMes.Api.Features.Sales;
 using JiMes.Api.Features.Printing.Fixed;
 using JiMes.Api.Features.Printing.Providers;
 using JiMes.Api.Features.Scheduling;
@@ -139,6 +140,7 @@ app.MapHeatProcessEndpoints();
 app.MapStepTemplateEndpoints();
 app.MapStandardEndpoints();
 app.MapInspectionStandardEndpoints();
+app.MapSalesOrderEndpoints();
 app.MapHub<EventsHub>(EventsHub.Route).RequireLogin();
 // SPA 라우팅: /api·/hubs 가 아닌 경로는 index.html (없는 API 는 404 유지)
 app.MapFallbackToFile("{*path:nonfile:regex(^(?!api/|hubs/).*$)}", "index.html").AllowAnonymous();

@@ -27,6 +27,16 @@ public static partial class NumberFormat
             throw new FormatException($"번호 형식 '{template}' 의 토큰 {{{name}}} 값이 없습니다.");
         });
 
+    /// <summary>같은 접두 번호를 찾는 SQL LIKE 패턴 — {SEQ} 자리 = %, 나머지는 문자 그대로 (\ % _ 이스케이프)</summary>
+    public static string LikePattern(string template, DateOnly date, IReadOnlyDictionary<string, string>? tokens = null)
+    {
+        const char marker = '\u0001';
+        var text = TokenPattern().Replace(template, m => m.Groups["name"].Value == "SEQ"
+            ? marker.ToString()
+            : Format(m.Value, date, 0, tokens));
+        return text.Replace(@"\", @"\\").Replace("%", @"\%").Replace("_", @"\_").Replace(marker, '%');
+    }
+
     [GeneratedRegex(@"\{(?<name>[A-Za-z]+)(?::(?<format>[^}]+))?\}")]
     private static partial Regex TokenPattern();
 }
