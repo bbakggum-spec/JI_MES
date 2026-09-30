@@ -3,6 +3,10 @@ using JiMes.Api.Features.AuditLogs;
 using JiMes.Api.Features.Auth;
 using JiMes.Api.Features.CommonCodes;
 using JiMes.Api.Features.Health;
+using JiMes.Api.Features.Printing;
+using JiMes.Api.Features.Printing.Fixed;
+using JiMes.Api.Features.Printing.Providers;
+using JiMes.Api.Features.Scheduling;
 using JiMes.Api.Features.Settings;
 using JiMes.Api.Infrastructure.Audit;
 using JiMes.Api.Infrastructure.Codes;
@@ -85,6 +89,21 @@ services.AddRateLimiter(o =>
 });
 
 services.AddScoped<SettingChangeService>();
+services.AddScoped<SchedulingService>();
+services.AddHostedService<ScheduleDelayMonitor>();
+
+// 출력 (EXCEL / FIXED, §5.3). QuestPDF 라이선스는 설정으로 명시 (구 WinForms 와 같은 Community — 적용 조건은 설계 §12 확인)
+QuestPDF.Settings.License = builder.Configuration.GetValue<QuestPDF.Infrastructure.LicenseType?>("Print:QuestPdfLicense")
+    ?? throw new InvalidOperationException("설정 Print:QuestPdfLicense 가 없습니다 (Community / Professional / Enterprise).");
+// 서버에 설치된 글꼴 사용 (배포 체크리스트: 굴림체·맑은 고딕 설치, §15.3 F6). 끄면 실행 폴더에 둔 글꼴만 쓴다
+QuestPDF.Settings.UseSystemFonts = builder.Configuration.GetValue("Print:UseSystemFonts", false);
+services.AddSingleton<PdfConverter>();
+services.AddSingleton<AttachmentReader>();
+services.AddSingleton<IPrintDataProvider, InspectionTargetProvider>();
+services.AddSingleton<IPrintDataProvider, ShipmentProvider>();
+services.AddSingleton<IFixedRenderer, SalesSlipRenderer>();
+services.AddScoped<PrintService>();
+services.AddScoped<TemplateAdminService>();
 
 var app = builder.Build();
 
@@ -105,6 +124,8 @@ app.MapAuthEndpoints();
 app.MapSettingEndpoints();
 app.MapCommonCodeEndpoints();
 app.MapAuditLogEndpoints();
+app.MapScheduleEndpoints();
+app.MapPrintEndpoints();
 app.MapHub<EventsHub>(EventsHub.Route).RequireLogin();
 // SPA 라우팅: /api·/hubs 가 아닌 경로는 index.html (없는 API 는 404 유지)
 app.MapFallbackToFile("{*path:nonfile:regex(^(?!api/|hubs/).*$)}", "index.html").AllowAnonymous();

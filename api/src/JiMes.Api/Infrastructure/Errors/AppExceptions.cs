@@ -8,6 +8,9 @@ public abstract class AppException(int status, string code, string message) : Ex
 {
     public int Status { get; } = status;
     public string Code { get; } = code;
+
+    /// <summary>ProblemDetails 에 더 실을 값 (화면이 다음 동작에 쓰는 정보).</summary>
+    public virtual IReadOnlyDictionary<string, object?>? Extra => null;
 }
 
 public sealed class NotFoundException(string table, long id)

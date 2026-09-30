@@ -6,7 +6,9 @@ import { lazy, type ComponentType, type LazyExoticComponent } from 'react'
  * 새 화면: DDL §9.8 메뉴 추가 → 여기 등록.
  */
 export const pageRegistry: Record<string, LazyExoticComponent<ComponentType>> = {
+  'production.schedule': lazy(() => import('./production/SchedulePage')),
   'system.setting': lazy(() => import('./system/SettingsPage')),
   'system.code': lazy(() => import('./system/CommonCodesPage')),
   'system.audit': lazy(() => import('./system/AuditLogsPage')),
+  'system.print': lazy(() => import('./system/PrintTemplatesPage')),
 }

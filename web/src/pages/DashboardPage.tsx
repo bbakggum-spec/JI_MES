@@ -1,9 +1,9 @@
 import { useQuery } from '@tanstack/react-query'
 import { Badge, Card, Col, Descriptions, Empty, Row, Tag, Typography } from 'antd'
-import { useEffect, useState } from 'react'
 import { api } from '../api/client'
 import { useAuth } from '../auth/useAuth'
 import { useClientSettings } from '../hooks/useClientSettings'
+import { useNow } from '../hooks/useNow'
 import { queryKeys } from '../queryKeys'
 import { useRealtimeStatus } from '../realtime/realtime'
 import { dayjs, workDate, workDayRange } from '../utils/workDate'
@@ -92,15 +92,4 @@ export default function DashboardPage() {
       </Row>
     </>
   )
-}
-
-/** 작업일 표시가 자정·작업일 시작 시각을 넘기면 바뀌도록 주기적으로 현재 시각 갱신 */
-function useNow(intervalMs: number | undefined) {
-  const [now, setNow] = useState(() => dayjs())
-  useEffect(() => {
-    if (!intervalMs) return
-    const id = window.setInterval(() => setNow(dayjs()), intervalMs)
-    return () => window.clearInterval(id)
-  }, [intervalMs])
-  return now
 }

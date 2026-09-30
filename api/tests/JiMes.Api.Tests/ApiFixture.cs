@@ -19,7 +19,7 @@ public sealed class ApiFixture : IAsyncLifetime
     public const string AdminLoginId = "admin";
     public const string AdminPassword = "test-admin-pw";
 
-    private static readonly string ServerConnection =
+    internal static readonly string ServerConnection =
         Environment.GetEnvironmentVariable("JIMES_TEST_SERVER")
         ?? "Server=127.0.0.1;Port=3307;User ID=root;Password=;SslMode=None";
 
@@ -36,6 +36,7 @@ public sealed class ApiFixture : IAsyncLifetime
             b.UseSetting("ConnectionStrings:Main", ConnectionString);
             b.UseSetting("Bootstrap:AdminLoginId", AdminLoginId);
             b.UseSetting("Bootstrap:AdminPassword", AdminPassword);
+            b.UseSetting("Scheduling:AutoRecalculate", "false");   // 테스트는 재계산 시점을 직접 통제
         });
         _ = Factory.Server;   // 시작 (캐시 적재 + 최초 관리자 생성)
     }
@@ -108,7 +109,7 @@ public sealed class ApiFixture : IAsyncLifetime
             $"UPDATE `{DatabaseName}`.system_setting SET setting_value = '1000' WHERE setting_key = 'auth.login_max_attempts_per_min'");
     }
 
-    private static string FindRepoFile(params string[] parts)
+    internal static string FindRepoFile(params string[] parts)
     {
         for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
         {

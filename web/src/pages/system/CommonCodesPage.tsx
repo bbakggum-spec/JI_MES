@@ -1,6 +1,6 @@
 import { LockOutlined } from '@ant-design/icons'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { App, Button, Card, Col, Form, Input, InputNumber, List, Modal, Row, Switch, Table, Tag, Tooltip, Typography } from 'antd'
+import { App, Button, Card, Col, Form, Input, InputNumber, Menu, Modal, Row, Spin, Switch, Table, Tag, Tooltip, Typography } from 'antd'
 import { useState } from 'react'
 import { api, fieldErrors } from '../../api/client'
 import type { CommonCode } from '../../api/types'
@@ -24,14 +24,18 @@ export default function CommonCodesPage() {
       <Row gutter={16}>
         <Col xs={24} md={7} lg={6}>
           <Card size="small" title="그룹" styles={{ body: { padding: 0 } }}>
-            <List loading={isPending} dataSource={data ?? []} renderItem={(g) => (
-              <List.Item onClick={() => setSelected(g.groupCode)} style={{
-                cursor: 'pointer', paddingInline: 16,
-                background: g.groupCode === group?.groupCode ? 'var(--ant-color-primary-bg)' : undefined,
-              }}>
-                <List.Item.Meta title={g.groupName} description={g.groupCode} />
-              </List.Item>
-            )} />
+            <Spin spinning={isPending}>
+              <Menu mode="inline" style={{ borderInlineEnd: 0 }}
+                selectedKeys={group ? [group.groupCode] : []} onClick={(e) => setSelected(e.key)}
+                items={(data ?? []).map((g) => ({
+                  key: g.groupCode,
+                  label: (
+                    <span>
+                      {g.groupName} <Typography.Text type="secondary" style={{ fontSize: 12 }}>{g.groupCode}</Typography.Text>
+                    </span>
+                  ),
+                }))} />
+            </Spin>
           </Card>
         </Col>
         <Col xs={24} md={17} lg={18}>

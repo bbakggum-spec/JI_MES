@@ -14,6 +14,8 @@ public sealed class AppExceptionHandler(IProblemDetailsService problemDetails) :
         problem.Extensions["code"] = app.Code;
         if (app is RequestValidationException validation)
             problem.Extensions["errors"] = validation.Errors;
+        foreach (var (key, value) in app.Extra ?? new Dictionary<string, object?>())
+            problem.Extensions[key] = value;
 
         context.Response.StatusCode = app.Status;
         return await problemDetails.TryWriteAsync(new ProblemDetailsContext

@@ -12,6 +12,17 @@ public static class SettingKeys
     public const string AuthPasswordMinLength = "auth.password_min_length";
     public const string ScheduleDayStartTime = "schedule.day_start_time";
     public const string ScheduleRefreshIntervalSec = "schedule.refresh_interval_sec";
+    public const string ScheduleDefaultRunningTimeMin = "schedule.default_running_time_min";
+    public const string ScheduleTempLotPrefix = "schedule.temp_lot_prefix";
+    public const string ScheduleBoardDays = "schedule.board_days";
+    public const string LotNumberFormat = "lot.number_format";
+    public const string PrintPdfConverterPath = "print.pdf_converter_path";
+    public const string PrintPdfConvertTimeoutSec = "print.pdf_convert_timeout_sec";
+    public const string PrintMaxTemplateFileMb = "print.max_template_file_mb";
+    public const string PrintKeepIssuedOutput = "print.keep_issued_output";
+    public const string SalesVatRate = "sales.vat_rate";
+    public const string SalesAmountRounding = "sales.amount_rounding";
+    public const string FileStorageRoot = "file.storage_root";
 
     /// <summary>
     /// 로그인 사용자 누구나 읽을 수 있는 설정 (GET /api/client-settings). 웹 화면 동작에 필요한 값만 둔다.
@@ -21,5 +32,6 @@ public static class SettingKeys
     [
         ScheduleDayStartTime,
         ScheduleRefreshIntervalSec,
+        ScheduleBoardDays,
     ];
 }

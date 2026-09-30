@@ -4,6 +4,7 @@ import { createContext, use } from 'react'
 export const RealtimeEvents = {
   settingChanged: 'settingChanged',
   commonCodeChanged: 'commonCodeChanged',
+  scheduleChanged: 'scheduleChanged',
 } as const
 
 export type RealtimeStatus = 'disconnected' | 'connecting' | 'connected' | 'reconnecting'

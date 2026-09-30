@@ -6,4 +6,6 @@ export const queryKeys = {
   commonCodes: ['common-codes'] as const,
   auditLogs: ['audit-logs'] as const,
   health: ['health'] as const,
+  schedule: ['schedule'] as const,
+  print: ['print'] as const,
 }

@@ -9,11 +9,14 @@ namespace JiMes.Api.Infrastructure.Security;
 /// <summary>API 권한 키 = menu.menu_key. DDL 초기 데이터(§9.8)에 있어야 한다 (테스트로 확인).</summary>
 public static class MenuKeys
 {
+    public const string ProductionSchedule = "production.schedule";
+
     public const string SystemUser = "system.user";
     public const string SystemRole = "system.role";
     public const string SystemSetting = "system.setting";
     public const string SystemCode = "system.code";
     public const string SystemAudit = "system.audit";
+    public const string SystemPrint = "system.print";
 }
 
 /// <summary>role_menu 의 can_read / can_create / can_update / can_delete.</summary>

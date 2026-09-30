@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ApiError, api, fieldErrors, setUnauthorizedListener } from './client'
+import { ApiError, api, fieldErrors, fileNameOf, setUnauthorizedListener } from './client'
 
 function mockFetch(status: number, body?: unknown) {
   vi.stubGlobal('fetch', vi.fn(async () => new Response(
@@ -33,6 +33,12 @@ describe('api', () => {
     expect(listener).toHaveBeenCalledTimes(1)
     await expect(api('/api/auth/login', { method: 'POST', body: {} })).rejects.toBeInstanceOf(ApiError)
     expect(listener).toHaveBeenCalledTimes(1)
+  })
+
+  it('한글 파일명 (filename*) 을 읽는다', () => {
+    expect(fileNameOf(`attachment; filename=x.pdf; filename*=UTF-8''${encodeURIComponent('검사성적서_TO-1.pdf')}`)).toBe('검사성적서_TO-1.pdf')
+    expect(fileNameOf('attachment; filename="a.xlsx"')).toBe('a.xlsx')
+    expect(fileNameOf(null)).toBeNull()
   })
 
   it('204 는 undefined', async () => {

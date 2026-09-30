@@ -1,4 +1,4 @@
-# bbakggum DB 구조개편 설계안 V3.10
+# bbakggum DB 구조개편 설계안 V3.12
 
 | 항목 | 내용 |
 |-|-|
@@ -20,6 +20,8 @@
 | V3.5 | 2026-09-30 | **모든 출력물 = 사용자 엑셀 양식 등록 방식**, 출력 용도 **사용자 확장**(`print_purpose`), 양식 파일 **DB 버전 보관**, 치환자 사전(`print_field`), 출력 이력(`print_log`), **구현 시 주의사항**(§15: 스케줄·진행현황, 엑셀 양식 출력 — 기존 소스 분석), 기존 DB 보존 + 신규 구축 원칙 명시 |
 | V3.6 | 2026-09-30 | 양식 등록 방식 **2가지**: EXCEL(사용자 수정 양식) + **FIXED**(코드 고정 레이아웃 — 거래명세표 등 구 PrintDoc 7종, 레이아웃 옵션은 관리자 조정), **하드코딩 → 관리자 설정**(§15.4, `system_setting` 확장·초기값, 로직 참조 공통코드, 단말별 프린터 `workstation_print_setting`, 도장 이미지 DB 보관) |
 | V3.8 | 2026-09-30 | **1단계 기존 폼 분석 반영** (`docs/legacy_forms/`): 입고번호 = 스캔 수주번호(`order_item_no`), 수주 행 요구사항 Snapshot·우선순위·별도관리·고객 작업지시번호, 품목 단가 적용 구분(EA/KG/CHARGE), 설비당 투입 중 작업 1건, 한 LOT에 같은 수주 1회, 관리항목 템플릿(`step_template_condition`), 검사구분(입고/공정/출하)·재검사·**검사 결과 공통 적용**, 부적합 처리구분(재처리/출하/선별/보류/폐기/반송), 출하 시험편·거래처 Snapshot·전표 단위 마감 상태(미마감/마감/이월), 공통 첨부(`attachment`), 설정·공통코드 추가. 배정 병합 시 최대 작업시간, 지연 시 뒤 배정 계획시각 자동 이동 |
+| V3.12 | 2026-09-30 | **4단계 ② 출력 엔진** (§21, §12 확인 4건): EXCEL(치환·반복행·이미지·구 좌표 키 호환 → 서버 LibreOffice PDF) / FIXED(거래명세표 렌더러 + 옵션), 양식 선택 단일 함수, 발행 이력·재발행, 양식 관리 화면. DDL: `print_template.is_default`(용도 기본 양식), `shipment.supply_amount`·`vat_amount`·`total_amount`(F2), 치환자 사전 초기 데이터(검사 대상·출하 전표), 메뉴 `system.print`, 고정 양식 글꼴 = 설치 이름 목록("굴림체", "맑은 고딕"), 거래명세표 여백 20 |
+| V3.11 | 2026-09-30 | **4단계 ① 스케줄 서비스 + Gantt** (§20, §7 규칙 구체화, §12 확인 3건): 계산 엔진·5단계 작업시간·설비 잠금·지연 반영 재계산·구 SP 실제 실행 비교. DDL: `production_schedule.duration_source`, 공통코드 `SCHEDULE_STATUS`·`RUNNING_TIME_SOURCE`, 설정 `schedule.board_days`, 메뉴 `production.schedule` |
 | V3.10 | 2026-09-30 | **3단계 웹 골격** (§19): React + Vite + Ant Design, 쿠키 세션·권한 메뉴(DB 메뉴 트리)·SignalR 캐시 무효화·대시보드 틀·시스템 화면 3종(관리자 설정·공통코드·변경 이력). API: 클라이언트 설정 조회 `GET /api/client-settings`, 운영 시 웹 정적 파일 제공(같은 출처) |
 | V3.9 | 2026-09-30 | **2단계 API 골격** (§18): 쿠키 인증·역할 합집합 권한(fail-closed)·감사·설정/공통코드 캐시·row_version·SignalR. DDL: 권한 초기 데이터(ADMIN 역할, 시스템 메뉴 트리 — §9.8), 설정 `auth.permission_cache_sec`·`auth.login_max_attempts_per_min`·`auth.password_min_length` 추가 |
 | V3.7 | 2026-09-30 | 고정 양식 6종 전체 **레이아웃 옵션 스키마·초기값** 확정(§15.3.1), 우선순위 표시명·색상 하드코딩 → 공통코드 `PRIORITY`, `sales_order.priority` 기본값 1(일반)로 수정 (기존 코드 기준 3 = 긴급) |
@@ -281,15 +283,25 @@ print_log                                발행 이력 (양식 버전, 대상, �
 
 | 규칙 | 기준 |
 |-|-|
-| 단위 | 설비 × 작업일 내 `sequence_no` 순 |
-| 시작시각 | 이전 블록 종료. 실적이 있으면 `actual_end_at` |
+| 단위 | 설비별 체인 (작업일, `sequence_no`) 순. 재계산 후 작업일마다 시작 순으로 순번 재부여 (작업지시 블록 포함) |
+| 시작시각 | 이전 블록 종료. 체인 시작점 = max(현재, 진행 중 작업의 `actual_start_at` + 예상시간, 작업지시됐지만 투입 전인 블록의 계획 종료). 빈 시간은 당겨 붙인다 (구 C# 재계산과 동일 — §12 4단계 확인 ②) |
+| 자정 | **연속 배치.** 구 SP의 "자정 넘으면 다음날 08:00으로 점프"는 폐기 (쉬는 시간은 휴일·비가동으로 표현) — 4단계 비교 테스트로 차이 확인 |
 | 소요시간 | 블록에 담긴 품목별 작업시간 중 **최대값** (병합 포함, 수량 비례 아님 — 2026-09-30 확정). 품목별 작업시간 결정 순서: ① 작업표준 `running_time_min` → ② 같은 품목·설비유형의 직전 작업 시간 → ③ `process_default_time` → ④ 사용자 입력 후 기준시간 등록 → ⑤ 설정 `schedule.default_running_time_min` |
 | 작업일 경계 | 첫 교대 시작시각 (구 코드 `startTime.Hour < 8`이면 전일 → `work_shift`로 설정화) |
-| 제외 | `work_calendar` 휴일, `equipment_downtime.is_planned` |
-| 고정 | `is_time_locked` (신규 기능) |
+| 제외 | `work_calendar` 휴일 작업일에는 **시작하지 않음** (시작한 블록은 휴일로 넘어가도 끊지 않음 — §12 4단계 확인 ①), `equipment_downtime.is_planned` 구간과는 **겹치지 않음** (비가동 종료 뒤로) |
+| 고정 | `is_time_locked` (신규 기능) — 시각을 바꾸지 않고, 다른 블록이 겹치지 않게 비켜 가는 장애물. 고정 블록은 이동 불가 |
 | 대상 | PLANNED, CONFIRMED만 (RELEASED 이후 불변) |
 | 지연 반영 | 작업이 계획보다 늦게 끝나거나 늦게 진행 중이면 **같은 설비의 뒤 배정 계획시각을 실제로 뒤로 이동해 저장**하고 화면을 갱신 (고정 블록 제외) — 2026-09-30 확정 (구: 화면 표시만 이동) |
-| 동시성 | 설비·일자 `SELECT … FOR UPDATE` + `row_version` |
+| 동시성 | 설비 행 `SELECT … FOR UPDATE` (여러 설비는 id 순으로 잠금) + `row_version`. 재계산이 바꾸는 시각·순번·임시 LOT은 파생값이라 `row_version`을 올리지 않음 (지연 반영이 사용자 편집을 409로 만들지 않게) |
+
+**구 로직 비교 결과 (4단계, 구 SP를 비교 전용 DB에서 실제 실행)** — 테스트 `api/tests/…/Scheduling/LegacyScheduleComparisonTests.cs`
+
+| 경우 | 결과 |
+|-|-|
+| 같은 작업일 안 연속 배치, 실적 종료 뒤 시작 | 신규 = 구 SP = 구 C# 재계산 |
+| 자정을 넘는 블록 | 신규 = 구 C#(연속). 구 SP는 다음날 08:00으로 점프 → **폐기** |
+| 소수 시간 (1.5h) | 신규 90분 정확. 구 SP는 `INTERVAL 1.5 HOUR`가 반올림되어 **2h로 계산되는 결함** |
+| 임시 LOT번호 | 설정 초기값(`P` + `{yyMMdd}-{EQUIP}-{SEQ:000}`)으로 구 C#과 동일 |
 
 ---
 
@@ -433,6 +445,24 @@ print_log                                발행 이력 (양식 버전, 대상, �
 | 3 | 구 `t_inspection`에서 같은 inspectionno에 subno가 여러 개인 실제 데이터 형태 | inspectionno별 subno 분포 |
 | 4 | 고정 양식 옵션 편집 범위 (관리자에게 열어줄 키 / 개발자만 수정할 키 구분) | 관리자 화면 설계 시 |
 | 5 | 고정 양식 중 업체별로 엑셀 양식이 필요한 출력물이 있는지 (예: 특정 업체 전용 거래명세표) | 업무 확인 |
+
+**4단계 스케줄 — 구현 기준으로 정했고 확인이 필요한 규칙** (§7)
+
+| # | 항목 | 현재 구현 | 대안 |
+|-|-|-|-|
+| ① | 휴일로 넘어가는 블록 | 휴일 작업일에는 시작 안 함. 전날 시작한 사이클은 휴일로 넘어가도 계속 | 휴일 전에 끝나지 않으면 휴일 뒤로 미룸 |
+| ② | 미래 계획의 빈 시간 | 체인을 당겨 붙임 (다음 주 계획도 오늘로) — 특정 시각은 "시각 고정"으로 | 계획 시작시각을 하한으로 존중 (당기지 않음) |
+| ③ | 다른 설비유형으로 이동 | 작업시간 유지 | 이동한 설비유형 기준으로 5단계 재결정 |
+
+**4단계 출력 — 확인이 필요한 사항** (§21)
+
+| # | 항목 | 현재 구현 | 확인 |
+|-|-|-|-|
+| ④ | QuestPDF 라이선스 | 구 WinForms와 같은 Community (설정 `Print:QuestPdfLicense`) | Community는 연 매출 100만 달러 미만 기업 조건 — 해당 여부 확인. 아니면 Professional 구매 또는 다른 PDF 엔진 |
+| ⑤ | 업체 전용 거래명세표(EXCEL) | `part_print_template`는 품목 기준이라 전표(여러 품목)에는 연결 불가 → 용도 기본 양식 또는 발행 시 양식 지정 | 업체별 양식 연결(`customer_print_template` 등)이 필요한지 (§12 #5와 같은 질문) |
+| ⑥ | 거래명세표 행별 세액 | 금액 × 세율 반올림(표시용), 합계 세액은 전표 저장값 — 행 세액 합과 1원 단위로 다를 수 있음 (구 동일) | 행 세액 표시를 유지할지 |
+| ⑦ | 발행 권한 | 지금은 `system.print` 읽기 | 6단계에서 검사·출하 화면 권한으로 옮김 (예정) |
+
 
 ---
 
@@ -580,7 +610,7 @@ print_log                                발행 이력 (양식 버전, 대상, �
 
 | 렌더러 | 기존 클래스 | 용지 | 조정 가능 옵션 (초기값) |
 |-|-|-|-|
-| `SALES_SLIP` 거래명세표 | `OutputSheet` (+Com, Multi) | A4 세로, 여백 0 | 폰트 GulimChe·영역별 12종, 페이지당 품목 6행, **보관용 2부** (문구·테두리색), 여백·절취선 간격 5종, 행 높이 4종, 선 두께, 배경색, **도장**(표시·크기 50·X -250·Y 65/480), 여러 전표 한 PDF 병합 |
+| `SALES_SLIP` 거래명세표 | `OutputSheet` (+Com, Multi) | A4 세로, 여백 20 (구 `page.Margin(20)`) | 폰트 "굴림체"(설치 이름, 대체 목록)·영역별 12종, 페이지당 품목 6행, **보관용 2부** (문구·테두리색), 여백·절취선 간격 5종, 행 높이 4종, 선 두께, 배경색, **도장**(표시·크기 50·X -250·Y 65/480), 여러 전표 한 PDF 병합 |
 | `PROCESS_SHEET` 공정이동표 | `ProcessSheet` | A4 세로, 여백 20 | 폰트 6종 (제목 40, 품명 30, 보안품 32), 보안품 표시, **좌측 라벨 16개**, 공정 기록 행 16, 컬럼 9개(제목·너비), **바코드** CODE_128 200×70 (수주번호), 우선순위 → 공통코드 `PRIORITY` |
 | `PRODUCT_LABEL` 제품표시 라벨 | `ProductLabel` | **65×80mm**, 여백 5mm | 폰트 4종, 항목명 열 22mm, **표시 항목 14개**(키·라벨), 바코드 CODE_128 300×60 |
 | `WORK_DAILY` 작업일보 | `WorkDailySheet` | A4 가로, 여백 8 | 폰트 5종, **구역 8개**(로트·투입·분할·작업표준·작업조건·검사·불량·특기, 순서·표시), 투입표 컬럼 8개, 분할표 컬럼 4개, 조건 항목열 60, 라인검사 측정점 5, 빈 데이터 문구 |
@@ -770,3 +800,114 @@ print_log                                발행 이력 (양식 버전, 대상, �
 ## 19.4 대시보드
 
 작업일(설정 기준 범위), 시스템 상태(API·DB, 실시간 연결, `schedule.refresh_interval_sec` 주기 확인), 내 계정. LOT 진행·설비 가동·검사·부적합·출하·마감 패널은 자리만 두고 7단계에서 채운다.
+
+---
+
+# 20. 스케줄 서비스 + 생산계획 Gantt (4단계 ①, V3.11)
+
+## 20.1 구조
+
+| 위치 | 내용 |
+|-|-|
+| `Features/Scheduling/ScheduleCalculator.cs` | **계산 규칙 전부** (§7). DB·시계 의존 없는 순수 함수 — 체인·앵커·달력(작업일 시작, 휴일, 비가동)을 받아 시각·작업일 배정 |
+| `RunningTimeResolver.cs` | 작업시간 ①표준(설비 > 설비유형 > 공통, 현재 버전) ②같은 품목·단위공정·설비유형 최근 완료 작업 ③설비 기준시간(설비 > 유형, 공정 지정 > 공통). ④⑤는 요청이 결정 |
+| `SchedulingService.cs` | 설비 잠금 → 사용자 의도 저장(row_version) → 체인 재계산(시각·작업일·순번·임시 LOT) → 감사 → 커밋 → SignalR `scheduleChanged {equipmentIds}` |
+| `ScheduleDelayMonitor.cs` | 지연 반영: `schedule.refresh_interval_sec`마다 계획이 있는 설비 재계산. 설정 `Scheduling:AutoRecalculate=false`로 끔 (테스트) |
+| `Infrastructure/Numbering/NumberFormat.cs` | 번호 형식 설정 해석 (`{yyMMdd}`, `{SEQ:000}`, `{EQUIP}` …) — LOT·입고·출하·검사번호 공용 |
+| `web/src/pages/production/` | `SchedulePage`(배정 대기·도구막대·상세·입력창), `ScheduleGantt`(설비 행 × 시간), `ganttMath`(좌표·삽입 위치 — 단위 테스트) |
+
+## 20.2 API
+
+| 메서드·경로 | 권한 (`production.schedule`) | 내용 |
+|-|-|-|
+| `GET /api/schedule/board?from&days&equipmentTypeId` | R | 설비·블록(+수주)·실적·휴일·비가동. 범위 = 작업일 시작부터 `days`일 (기본 `schedule.board_days`, 상한 31) |
+| `GET /api/schedule/backlog?equipmentTypeId&search` | R | 수주품목 × 공정 경로 단위공정 중 계획 잔량 > 0 (설비유형 지정 시 그 유형의 단계 템플릿 공정만) |
+| `POST /api/schedule/blocks` | C | 배정. `beforeBlockId` 앞에 삽입(없으면 끝). 수량 = min(잔량, 표준 charge) |
+| `PUT /api/schedule/blocks/{id}/move` | U | 이동·순서 변경(다른 설비 포함, 두 설비 재계산) |
+| `POST /api/schedule/blocks/{id}/items` | U | 병합 — 작업시간 = 담긴 품목 최대값 |
+| `PUT /api/schedule/blocks/{id}/lock` | U | 시각 고정/해제 |
+| `POST /api/schedule/blocks/{id}/cancel` | D | 취소 (구 배정 회수) — 잔량 복귀 |
+| `POST /api/schedule/equipment/{id}/recalculate` | U | 수동 재계산 |
+
+- 수정 요청은 모두 `rowVersion` 필수 → 불일치 409. 작업지시·취소된 블록 422 `BLOCK_NOT_EDITABLE`, 고정 블록 이동 422 `BLOCK_LOCKED`.
+- 작업시간을 ①~③에서 못 찾으면 422 `DURATION_REQUIRED` + `defaultMin`. 화면이 입력창을 띄워 `durationMin`(+`saveAsDefault` → 설비유형 기준시간 등록) 또는 `useDefaultDuration`으로 다시 요청.
+
+## 20.3 화면
+
+- 배정 대기 행을 설비 행에 끌어 놓으면 놓은 시각 기준 삽입 위치(중간점이 뒤인 첫 블록 앞), 블록 위에 놓으면 병합/앞/뒤 선택. 블록 끌기 = 이동.
+- 표시: 상태 색(공통코드 `SCHEDULE_STATUS` 속성), 우선순위 왼쪽 띠(`PRIORITY`), 고정 점선, 위쪽 가는 막대 = 실적, 빗금 = 비가동, 붉은 선 = 현재, 휴일 음영. 자정·작업일을 넘는 블록은 한 막대로 연속 표시 (§15.1 S3).
+- 갱신: SignalR `scheduleChanged` → 보드·배정 대기 재조회, 보조로 `schedule.refresh_interval_sec` 주기 조회.
+- 개발 데이터: `dev-db.ps1 seed` (설비 6대, 공정 경로, 표준, 수주 6건, 진행 중 작업, 계획 비가동).
+
+## 20.4 남은 일
+
+- 계획 상태 전환(PLANNED → CONFIRMED → RELEASED = 작업 LOT 생성)은 6단계 투입과 함께.
+- 재작업 계획(부적합 → 블록), 밀린 계획 오늘로, 작업자 배정은 6단계.
+- SignalR 그룹을 설비·일자 단위로 나누기 (현재 전체 전송) — 동시 사용자가 늘면.
+
+---
+
+# 21. 출력 엔진 (4단계 ②, V3.12)
+
+## 21.1 구조 — 발행 경로 1개 (§15.2 P1)
+
+```text
+POST /api/print/issue {purposeCode, sourceId, printTemplateId?}
+  → 용도(print_purpose) → 데이터 공급원 코드(IPrintDataProvider) → PrintData(값 · 목록 · 이미지)
+  → 양식 선택: 지정 양식 > 품목+업체 기본 > 품목 공통 기본 > 용도 기본(print_template.is_default)   (P9 단일 함수)
+  → EXCEL: ExcelTemplateRenderer(ClosedXML) → PdfConverter(서버 LibreOffice)   /  FIXED: IFixedRenderer(QuestPDF) + layout_options_json
+  → print_log(양식 버전 · 치환값 Snapshot · 해시 · 보관 용도면 발행본) + 공급원 반영(성적서 발행 일시·횟수)
+```
+
+| 위치 (`api/src/JiMes.Api/Features/Printing/`) | 내용 |
+|-|-|
+| `Placeholders.cs` | 치환자 문법·추출·사전 대조 (미정의 = 경고, 반복행 짝 불일치·비목록 = 오류) |
+| `ExcelTemplateRenderer.cs` | 모든 시트 치환, 셀 전체가 숫자 치환자면 숫자 셀(양식 서식 유지), 반복행 복제(서식·행 높이 포함, 0건이면 행 삭제), 이미지 = 병합 영역 전체에 맞춤(모든 시트·위치) |
+| `PdfConverter.cs` | `print.pdf_converter_path`, `print.pdf_convert_timeout_sec`. 서버 1곳, **직렬 대기열** (LibreOffice 프로필 충돌 방지), 작업별 임시 폴더 |
+| `Fixed/SalesSlipRenderer.cs` | 거래명세표 (구 OutputSheet 3종 → 1개). 옵션 없으면 코드 기본값 = 구 상수 |
+| `Fixed/PdfFonts.cs` | 글꼴 = 옵션 `font.family` (이름 또는 대체 목록) 중 **설치된 것만** 사용, 없으면 422 `FONT_NOT_INSTALLED` |
+| `Providers/InspectionTargetProvider.cs` | 검사성적서 — 대상별 1장. 구 키 12개 + `T{탭}_{행}_…`(측정) · `C{탭}_{행}_…`(기준) 호환, 목록 `Measurements`, 이미지 `HardnessChart`·`StructurePhoto`(첨부) |
+| `Providers/ShipmentProvider.cs` | 출하 전표 — 금액은 전표 저장값(F2, 없으면 세율 설정으로 계산), 품목 합산 출력(구 MergeByPart), 도장 `company.stamp_image` |
+| `TemplateAdminService.cs` | 양식 추가(EXCEL), 파일 등록 = 새 버전(크기 `print.max_template_file_mb`, 해시 중복 거부, 치환자 검증), FIXED 옵션 = 새 버전, 용도 기본 지정, **샘플 양식**(P10) |
+
+## 21.2 치환자 (사용자 안내)
+
+```text
+{{키}} / {{한글별칭}}                 모든 시트·셀. 셀 전체가 숫자 치환자 하나면 숫자로 들어가 양식의 숫자 서식 적용
+{{#목록}} … {{/목록}}                  시작 표시가 있는 행 ~ 끝 표시가 있는 행을 데이터 수만큼 복제. 안에서는 {{항목}} 또는 {{목록.항목}}
+{{이미지키}}                           셀 병합 후 기입 → 병합 영역 전체에 맞춰 삽입
+{{T1_3_P2}}, {{C1_2_Spec}}            (검사성적서) 구 좌표형 키. 데이터 행보다 양식 행이 많으면 빈칸
+사전에 없는 키                          등록 시 경고, 출력물에는 {{키}} 그대로 남음 (오류가 보이게)
+```
+
+## 21.3 구 코드 대비 바뀐 점 (소스 확인)
+
+| 구 | 신규 |
+|-|-|
+| 거래명세표 일자 = 인쇄 시각 (`DateTime.Now`, OutputSheet 287행) | 출하일 |
+| 세율 `TAX_RATE = 0.1m` 출력 코드 안 (63행) | 전표 저장값 표시, 계산은 `sales.vat_rate`·`sales.amount_rounding` |
+| 도장 PC 경로 (`Stamps\Company\stamp_{id}.png`) | `company.stamp_image` |
+| 경화층 차트: 첫 시트·첫 셀, `MoveTo(첫 셀, 마지막 셀)` → 병합 영역 마지막 행·열이 빠짐 | 모든 시트·위치, 병합 영역 전체 |
+| 클라이언트 PC 두 경로에서 soffice 탐색, 60초 고정 | 서버 설정 1곳, 제한시간 설정, 직렬 처리 |
+| 글꼴 이름 `GulimChe`/`Malgun Gothic` 코드 고정 | 옵션 목록 (QuestPDF는 파일에 기록된 이름 "굴림체", "맑은 고딕"으로만 찾음 — 설정 `Print:UseSystemFonts`) |
+
+## 21.4 API · 화면
+
+| 메서드·경로 | 권한 (`system.print`) |
+|-|-|
+| `GET /api/print/purposes` (+ 치환자 사전), `GET …/purposes/{code}/sample-template` | R |
+| `GET /api/print/templates?purposeCode`, `POST /api/print/templates` | R / C |
+| `POST /api/print/templates/{id}/versions` (multipart 파일), `…/options` (FIXED JSON), `PUT …/default` | U |
+| `GET /api/print/templates/{id}/versions`, `GET /api/print/versions/{id}/file` | R |
+| `POST /api/print/issue`, `POST /api/print/logs/{id}/reprint` (당시 버전 + 당시 값), `GET /api/print/logs`, `GET /api/print/logs/{id}/file` (보관본) | R (6단계에서 업무 화면 권한으로) |
+
+- 발행 응답 헤더 `X-Print-Log-Id` = 이력 번호. 파일명은 `{용도명}_{검사번호-순번 | 전표번호}.pdf` (RFC 5987 한글 파일명).
+- 화면 `시스템 > 출력 양식`: 용도별 양식 목록, 엑셀 양식 추가·파일 등록(미정의 치환자 경고 표시), 버전 이력·파일 받기, FIXED 옵션 JSON 편집(새 버전), 용도 기본 지정, 샘플 양식·치환자 목록, 발행 확인(대상 ID 입력).
+- 배포 체크리스트: 서버에 LibreOffice, 한글 글꼴(굴림체·맑은 고딕) 설치.
+
+## 21.5 남은 일
+
+- 나머지 고정 양식 렌더러 5종(공정이동표·제품라벨·작업일보·진행현황표·작업표준서)과 데이터 공급원(작업 LOT·작업표준·마감·수주·일자별 계획) — 해당 업무 단계(5·6단계)에서.
+- 옵션 편집기의 샘플 데이터 미리보기, 옵션 JSON Schema 검증 (§15.3.1).
+- 단말별 프린터·자동 인쇄(`workstation_print_setting`) — 브라우저 인쇄 방식 결정 후.
+

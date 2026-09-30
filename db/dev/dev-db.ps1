@@ -3,14 +3,15 @@
 #   - 데이터: db/dev/.devdata (Git 제외)
 #   - 기존 운영 서비스(3306, bbakggum)는 건드리지 않음
 #
-# 사용법:  powershell -ExecutionPolicy Bypass -File db\dev\dev-db.ps1 <init|start|stop|status|apply|smoke|reset>
+# 사용법:  powershell -ExecutionPolicy Bypass -File db\dev\dev-db.ps1 <init|start|stop|status|apply|smoke|seed|reset>
 #   init   데이터 폴더 생성 → 시작 → DDL 적용
 #   apply  bbakggum_v2 를 지우고 DDL 재적용
 #   smoke  DDL 적용 후 db/test/smoke_scenario.sql 실행 (오류 0건 확인)
+#   seed   DDL 적용 후 db/dev/seed_dev.sql 실행 (화면 확인용 개발 데이터)
 #   reset  중지 → 데이터 폴더 삭제 → init
 
 param(
-    [ValidateSet('init', 'start', 'stop', 'status', 'apply', 'smoke', 'reset')]
+    [ValidateSet('init', 'start', 'stop', 'status', 'apply', 'smoke', 'seed', 'reset')]
     [string]$Action = 'status'
 )
 
@@ -25,6 +26,7 @@ $Data    = Join-Path $DevDir '.devdata'
 $LogFile = Join-Path $DevDir 'dev-db.log'
 $Ddl     = Join-Path $DbDir 'bbakggum_v2_DDL_V3.sql'
 $Smoke   = Join-Path $DbDir 'test\smoke_scenario.sql'
+$Seed    = Join-Path $DevDir 'seed_dev.sql'
 
 function Invoke-Client([string[]]$ClientArgs) {
     $ErrorActionPreference = 'Continue'
@@ -91,6 +93,11 @@ switch ($Action) {
         Start-Db; Apply-Ddl
         Invoke-SqlFile $Smoke
         Write-Host '스모크 시나리오 완료 (오류 없음)'
+    }
+    'seed'   {
+        Start-Db; Apply-Ddl
+        Invoke-SqlFile $Seed
+        Write-Host '개발 시드 적용 완료'
     }
     'reset'  {
         Stop-Db

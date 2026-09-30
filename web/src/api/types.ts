@@ -89,4 +89,5 @@ export interface Page<T> {
 export interface ClientSettings {
   'schedule.day_start_time': string
   'schedule.refresh_interval_sec': string
+  'schedule.board_days': string
 }

@@ -841,6 +841,8 @@ CREATE TABLE print_template (
     template_kind       VARCHAR(10)  NOT NULL DEFAULT 'EXCEL' COMMENT 'EXCEL = 사용자 엑셀 양식 / FIXED = 코드 고정 레이아웃',
     renderer_key        VARCHAR(50)  NULL COMMENT 'FIXED 전용: 코드 렌더러 식별자 (예: SALES_SLIP)',
     output_format       VARCHAR(10)  NOT NULL DEFAULT 'PDF' COMMENT '발행 형식',
+    is_default          TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '용도 기본 양식 — 품목(+업체) 연결이 없을 때 사용 (§5.3 양식 선택 3순위)',
+    default_key         TINYINT UNSIGNED AS (IF(is_default = 1, 1, NULL)) PERSISTENT,
     remark              VARCHAR(255) NULL,
     is_active           TINYINT(1)   NOT NULL DEFAULT 1,
     created_at          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -849,6 +851,7 @@ CREATE TABLE print_template (
     updated_by          BIGINT UNSIGNED NULL,
     PRIMARY KEY (print_template_id),
     UNIQUE KEY uk_print_template_name (print_purpose_id, print_template_name),
+    UNIQUE KEY uk_print_template_default (print_purpose_id, default_key) COMMENT '용도당 기본 양식 1개',
     CONSTRAINT fk_print_template_purpose
         FOREIGN KEY (print_purpose_id) REFERENCES print_purpose (print_purpose_id),
     CONSTRAINT ck_print_template_format CHECK (output_format IN ('PDF','XLSX')),
@@ -1088,6 +1091,7 @@ CREATE TABLE production_schedule (
     planned_lot_no      VARCHAR(100) NULL COMMENT '계획 단계 임시 LOT번호 (workplan.templotno)',
     planned_qty         DECIMAL(14,3) NOT NULL DEFAULT 0,
     planned_duration_min DECIMAL(10,2) NOT NULL DEFAULT 0,
+    duration_source     VARCHAR(20)  NULL COMMENT '작업시간 결정 출처 (공통코드 RUNNING_TIME_SOURCE) — 병합 시 최대값을 준 품목의 출처',
     planned_start_at    DATETIME     NOT NULL,
     planned_end_at      DATETIME     NOT NULL,
     status              VARCHAR(30)  NOT NULL DEFAULT 'PLANNED',
@@ -1629,6 +1633,9 @@ CREATE TABLE shipment (
     closing_month       TINYINT UNSIGNED NULL,
     closing_due_date    DATE         NULL COMMENT '전표 등록 시 지정한 마감일 (구 closingdate)',
     print_sum_by_part   TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '거래명세표 품목 합산 출력 (구 sumaspart)',
+    supply_amount       DECIMAL(15,2) NULL COMMENT '공급가액 = 상세 금액 합 — 출하 서비스가 계산·저장, 출력은 저장값만 표시 (§15.3 F2)',
+    vat_amount          DECIMAL(15,2) NULL COMMENT '세액 = 공급가액 × sales.vat_rate (sales.amount_rounding) — 구 출력 코드 TAX_RATE 대체',
+    total_amount        DECIMAL(15,2) NULL COMMENT '합계 = 공급가액 + 세액',
     status              VARCHAR(30)  NOT NULL DEFAULT 'DRAFT',
     customer_name_snapshot VARCHAR(100) NULL,
     customer_business_no_snapshot VARCHAR(20) NULL,
@@ -1823,8 +1830,8 @@ SELECT v.code, v.name, ds.print_data_source_id, 1, v.ord
   JOIN print_data_source ds ON ds.data_source_code = v.ds;
 
 -- 고정 양식 등록 (레이아웃 옵션 = 구 코드 상수값, 관리자 화면에서 조정)
-INSERT INTO print_template (print_template_name, print_purpose_id, template_kind, renderer_key)
-SELECT v.name, p.print_purpose_id, 'FIXED', v.renderer
+INSERT INTO print_template (print_template_name, print_purpose_id, template_kind, renderer_key, is_default)
+SELECT v.name, p.print_purpose_id, 'FIXED', v.renderer, 1
   FROM (SELECT '거래명세표 (기본)' name, 'SHIPMENT_SLIP' purpose, 'SALES_SLIP' renderer
         UNION ALL SELECT '공정이동표 (기본)',     'PROCESS_SHEET',  'PROCESS_SHEET'
         UNION ALL SELECT '제품표시 라벨 (기본)',  'PRODUCT_LABEL',  'PRODUCT_LABEL'
@@ -1839,8 +1846,8 @@ SELECT t.print_template_id, 1,
          -- 공통 스키마: page{size,orientation,margin|width_mm,height_mm,margin_mm} / font{family,…size} /
          --             title / sections[{key,title,visible}] / columns[{key,title,width|relative,visible}] / barcode{…}
          WHEN 'SALES_SLIP' THEN '{
-            "page": {"size": "A4", "orientation": "PORTRAIT", "margin": 0},
-            "font": {"family": "GulimChe", "default": 11, "title": 15, "header_label": 9, "header_value": 9,
+            "page": {"size": "A4", "orientation": "PORTRAIT", "margin": 20},
+            "font": {"family": ["굴림체", "GulimChe", "맑은 고딕"], "default": 11, "title": 15, "header_label": 9, "header_value": 9,
                      "storage_type": 9, "company_label": 7, "company_value": 9, "item_header": 9, "item": 9,
                      "summary_label": 9, "summary_value": 9, "page_no": 9},
             "title": "거 래 명 세 표",
@@ -1856,7 +1863,7 @@ SELECT t.print_template_id, 1,
          }'
          WHEN 'PROCESS_SHEET' THEN '{
             "page": {"size": "A4", "orientation": "PORTRAIT", "margin": 20},
-            "font": {"family": "Malgun Gothic", "default": 12, "title": 40, "header": 10, "content": 10,
+            "font": {"family": ["맑은 고딕", "Malgun Gothic"], "default": 12, "title": 40, "header": 10, "content": 10,
                      "item_title": 30, "security": 32},
             "title": "공정이동표",
             "show_security_box": true, "security_label": "보안품",
@@ -1873,7 +1880,7 @@ SELECT t.print_template_id, 1,
          }'
          WHEN 'PRODUCT_LABEL' THEN '{
             "page": {"width_mm": 65, "height_mm": 80, "margin_mm": 5},
-            "font": {"family": "Malgun Gothic", "title": 14, "label": 7, "value": 8, "order_no": 7},
+            "font": {"family": ["맑은 고딕", "Malgun Gothic"], "title": 14, "label": 7, "value": 8, "order_no": 7},
             "title": "제  품  표  시",
             "label_column_width_mm": 22,
             "fields": [{"key":"sales_order_no","title":"수 주 번 호"},{"key":"customer_name","title":"거  래  처"},
@@ -1887,7 +1894,7 @@ SELECT t.print_template_id, 1,
          }'
          WHEN 'WORK_DAILY' THEN '{
             "page": {"size": "A4", "orientation": "LANDSCAPE", "margin": 8},
-            "font": {"family": "Malgun Gothic", "title": 14, "section": 8, "label": 7, "value": 7, "table": 7},
+            "font": {"family": ["맑은 고딕", "Malgun Gothic"], "title": 14, "section": 8, "label": 7, "value": 7, "table": 7},
             "title": "작  업  일  보",
             "sections": [{"key":"lot_info","title":"로  트  정  보","visible":true},
                          {"key":"input","title":"투  입  정  보","visible":true},
@@ -1909,7 +1916,7 @@ SELECT t.print_template_id, 1,
          }'
          WHEN 'PROGRESS_SHEET' THEN '{
             "page": {"size": "A4", "orientation": "PORTRAIT", "margin": 20},
-            "font": {"family": "Malgun Gothic", "title": 20, "header": 12, "content": 10},
+            "font": {"family": ["맑은 고딕", "Malgun Gothic"], "title": 20, "header": 12, "content": 10},
             "title": "작업 진행 현황표",
             "status_code_group": "WORK_STATUS",
             "columns": [{"key":"no","title":"번호","width":50},{"key":"work_name","title":"작업명","relative":2},
@@ -1920,7 +1927,7 @@ SELECT t.print_template_id, 1,
          }'
          WHEN 'WORK_STANDARD' THEN '{
             "page": {"size": "A4", "orientation": "LANDSCAPE", "margin": 8},
-            "font": {"family": "Malgun Gothic", "title": 14, "section": 7, "label": 7, "value": 7, "standard_table": 7},
+            "font": {"family": ["맑은 고딕", "Malgun Gothic"], "title": 14, "section": 7, "label": 7, "value": 7, "standard_table": 7},
             "title": "작  업  표  준  서",
             "sections": [{"key":"part_info","title":"품  목  정  보","visible":true},
                          {"key":"requirement","title":"요  구  사  항","visible":true},
@@ -1936,6 +1943,81 @@ SELECT t.print_template_id, 1,
        1, '구 PrintDoc 상수값 이관'
   FROM print_template t WHERE t.template_kind = 'FIXED';
 
+-- 치환자 사전 (§15.2 P2·P3). 목록(LIST) 안의 항목은 '목록.항목' 키 — 양식에서는 {{#목록}} … {{/목록}} 행 안에 {{항목}} 또는 {{목록.항목}}
+--   검사 대상의 구 좌표형 키 {{T1_3_P2}}, {{C1_2_Spec}} 은 사전 없이 호환 허용 (구 InspectionPrintService.BuildPlaceholders)
+INSERT INTO print_field (print_data_source_id, field_key, field_alias, field_type, field_group, format_pattern, description, sample_value, sort_order)
+SELECT ds.print_data_source_id, v.k, v.a, v.t, v.g, v.f, v.d, v.s, v.o
+  FROM (SELECT 'INSPECTION_TARGET' ds, 'InspectionNo' k, '검사번호' a, 'TEXT' t, '기본정보' g, NULL f, NULL d, 'TO260930-001' s, 10 o
+        UNION ALL SELECT 'INSPECTION_TARGET', 'InspectionType', '검사구분', 'TEXT', '기본정보', NULL, '공통코드 INSPECTION_TYPE 표시명', '출하검사', 20
+        UNION ALL SELECT 'INSPECTION_TARGET', 'InspectionDate', '검사일자', 'DATE', '기본정보', 'yyyy-MM-dd', NULL, '2026-09-30', 30
+        UNION ALL SELECT 'INSPECTION_TARGET', 'WorkDate', '작업일자', 'DATE', '기본정보', 'yyyy-MM-dd', '작업 LOT 작업일', '2026-09-30', 40
+        UNION ALL SELECT 'INSPECTION_TARGET', 'IssueDate', '발행일자', 'DATE', '기본정보', 'yyyy-MM-dd', '성적서 발행 시각', '2026-09-30', 50
+        UNION ALL SELECT 'INSPECTION_TARGET', 'LotNo', '작업LOT', 'TEXT', '기본정보', NULL, '검사한 작업 LOT (주 LOT)', '260930-B01-001', 60
+        UNION ALL SELECT 'INSPECTION_TARGET', 'ConvertLot', '제출LOT', 'TEXT', '기본정보', NULL, '고객 제출 LOT (구 convertlot)', 'HD-0930-01', 70
+        UNION ALL SELECT 'INSPECTION_TARGET', 'CustomerName', '거래처', 'TEXT', '대상', NULL, NULL, '한독기어', 80
+        UNION ALL SELECT 'INSPECTION_TARGET', 'CustomerLot', '고객LOT', 'TEXT', '대상', NULL, NULL, 'CL-77', 90
+        UNION ALL SELECT 'INSPECTION_TARGET', 'PartName', '품명', 'TEXT', '대상', NULL, NULL, '헬리컬 기어 A', 100
+        UNION ALL SELECT 'INSPECTION_TARGET', 'PartNumber', '품번', 'TEXT', '대상', NULL, NULL, 'HG-100', 110
+        UNION ALL SELECT 'INSPECTION_TARGET', 'Specification', '규격', 'TEXT', '대상', NULL, NULL, NULL, 120
+        UNION ALL SELECT 'INSPECTION_TARGET', 'Model', '기종', 'TEXT', '대상', NULL, NULL, NULL, 130
+        UNION ALL SELECT 'INSPECTION_TARGET', 'Material', '재질', 'TEXT', '대상', NULL, NULL, 'SCM420H', 140
+        UNION ALL SELECT 'INSPECTION_TARGET', 'ChargeQt', '검사수량', 'NUMBER', '대상', '#,##0', '검사 대상 수량 (구 chargeqt)', '400', 150
+        UNION ALL SELECT 'INSPECTION_TARGET', 'Decision', '판정', 'TEXT', '판정', NULL, '공통코드 DECISION 표시명', '합격', 160
+        UNION ALL SELECT 'INSPECTION_TARGET', 'Measurements', '측정', 'LIST', '측정값', NULL, '검사 항목별 1행', NULL, 200
+        UNION ALL SELECT 'INSPECTION_TARGET', 'Measurements.Seq', NULL, 'NUMBER', '측정값', NULL, '항목 순번', '1', 201
+        UNION ALL SELECT 'INSPECTION_TARGET', 'Measurements.ItemType', NULL, 'TEXT', '측정값', NULL, '공통코드 INSPECTION_ITEM_TYPE 표시명', '외관·경도·치수', 202
+        UNION ALL SELECT 'INSPECTION_TARGET', 'Measurements.Item', NULL, 'TEXT', '측정값', NULL, '항목명', '표면경도', 203
+        UNION ALL SELECT 'INSPECTION_TARGET', 'Measurements.Location', NULL, 'TEXT', '측정값', NULL, NULL, NULL, 204
+        UNION ALL SELECT 'INSPECTION_TARGET', 'Measurements.Spec', NULL, 'TEXT', '측정값', NULL, '기준 요구사항 원문', 'HRC 58~62', 205
+        UNION ALL SELECT 'INSPECTION_TARGET', 'Measurements.P1', NULL, 'TEXT', '측정값', NULL, '시료 1 측정값 (P1~P10)', '60.1', 206
+        UNION ALL SELECT 'INSPECTION_TARGET', 'Measurements.P2', NULL, 'TEXT', '측정값', NULL, NULL, NULL, 207
+        UNION ALL SELECT 'INSPECTION_TARGET', 'Measurements.P3', NULL, 'TEXT', '측정값', NULL, NULL, NULL, 208
+        UNION ALL SELECT 'INSPECTION_TARGET', 'Measurements.P4', NULL, 'TEXT', '측정값', NULL, NULL, NULL, 209
+        UNION ALL SELECT 'INSPECTION_TARGET', 'Measurements.P5', NULL, 'TEXT', '측정값', NULL, NULL, NULL, 210
+        UNION ALL SELECT 'INSPECTION_TARGET', 'Measurements.P6', NULL, 'TEXT', '측정값', NULL, NULL, NULL, 211
+        UNION ALL SELECT 'INSPECTION_TARGET', 'Measurements.P7', NULL, 'TEXT', '측정값', NULL, NULL, NULL, 212
+        UNION ALL SELECT 'INSPECTION_TARGET', 'Measurements.P8', NULL, 'TEXT', '측정값', NULL, NULL, NULL, 213
+        UNION ALL SELECT 'INSPECTION_TARGET', 'Measurements.P9', NULL, 'TEXT', '측정값', NULL, NULL, NULL, 214
+        UNION ALL SELECT 'INSPECTION_TARGET', 'Measurements.P10', NULL, 'TEXT', '측정값', NULL, NULL, NULL, 215
+        UNION ALL SELECT 'INSPECTION_TARGET', 'Measurements.Result', NULL, 'TEXT', '측정값', NULL, '측정 결과 요약', NULL, 216
+        UNION ALL SELECT 'INSPECTION_TARGET', 'Measurements.Decision', NULL, 'TEXT', '측정값', NULL, '항목 판정 표시명', '합격', 217
+        UNION ALL SELECT 'INSPECTION_TARGET', 'HardnessChart', '경화층차트', 'IMAGE', '이미지', NULL, '첨부 HARDNESS_CHART — 셀 병합 영역에 맞춰 삽입', NULL, 300
+        UNION ALL SELECT 'INSPECTION_TARGET', 'StructurePhoto', '조직사진', 'IMAGE', '이미지', NULL, '첨부 STRUCTURE_PHOTO', NULL, 310
+        UNION ALL SELECT 'SHIPMENT', 'ShipmentNo', '전표번호', 'TEXT', '전표', NULL, NULL, 'O260930-001', 10
+        UNION ALL SELECT 'SHIPMENT', 'ShipmentDate', '출하일자', 'DATE', '전표', 'yyyy년 M월 d일', '구 거래명세표는 인쇄 시각을 찍음 → 출하일로 수정', '2026년 9월 30일', 20
+        UNION ALL SELECT 'SHIPMENT', 'SupplierName', '공급자상호', 'TEXT', '공급자', NULL, 'company', NULL, 30
+        UNION ALL SELECT 'SHIPMENT', 'SupplierBusinessNo', '공급자등록번호', 'TEXT', '공급자', NULL, NULL, NULL, 31
+        UNION ALL SELECT 'SHIPMENT', 'SupplierCeoName', '공급자성명', 'TEXT', '공급자', NULL, NULL, NULL, 32
+        UNION ALL SELECT 'SHIPMENT', 'SupplierAddress', '공급자주소', 'TEXT', '공급자', NULL, NULL, NULL, 33
+        UNION ALL SELECT 'SHIPMENT', 'SupplierBusinessType', '공급자업태', 'TEXT', '공급자', NULL, NULL, NULL, 34
+        UNION ALL SELECT 'SHIPMENT', 'SupplierBusinessItem', '공급자종목', 'TEXT', '공급자', NULL, NULL, NULL, 35
+        UNION ALL SELECT 'SHIPMENT', 'CustomerName', '거래처', 'TEXT', '공급받는자', NULL, '전표 당시 Snapshot', NULL, 40
+        UNION ALL SELECT 'SHIPMENT', 'CustomerBusinessNo', '거래처등록번호', 'TEXT', '공급받는자', NULL, NULL, NULL, 41
+        UNION ALL SELECT 'SHIPMENT', 'CustomerCeoName', '거래처성명', 'TEXT', '공급받는자', NULL, NULL, NULL, 42
+        UNION ALL SELECT 'SHIPMENT', 'CustomerAddress', '거래처주소', 'TEXT', '공급받는자', NULL, NULL, NULL, 43
+        UNION ALL SELECT 'SHIPMENT', 'CustomerBusinessType', '거래처업태', 'TEXT', '공급받는자', NULL, NULL, NULL, 44
+        UNION ALL SELECT 'SHIPMENT', 'CustomerBusinessItem', '거래처종목', 'TEXT', '공급받는자', NULL, NULL, NULL, 45
+        UNION ALL SELECT 'SHIPMENT', 'SupplyAmount', '공급가액', 'NUMBER', '합계', '#,##0', '저장값 (출하 서비스 계산)', '1200000', 50
+        UNION ALL SELECT 'SHIPMENT', 'VatAmount', '세액', 'NUMBER', '합계', '#,##0', NULL, '120000', 51
+        UNION ALL SELECT 'SHIPMENT', 'TotalAmount', '합계금액', 'NUMBER', '합계', '#,##0', NULL, '1320000', 52
+        UNION ALL SELECT 'SHIPMENT', 'Items', '품목', 'LIST', '품목', NULL, '전표 상세 1행 (품목 합산 출력이면 품목·단가별 합산)', NULL, 100
+        UNION ALL SELECT 'SHIPMENT', 'Items.No', NULL, 'NUMBER', '품목', NULL, NULL, '1', 101
+        UNION ALL SELECT 'SHIPMENT', 'Items.PartName', NULL, 'TEXT', '품목', NULL, NULL, '헬리컬 기어 A', 102
+        UNION ALL SELECT 'SHIPMENT', 'Items.PartNumber', NULL, 'TEXT', '품목', NULL, NULL, NULL, 103
+        UNION ALL SELECT 'SHIPMENT', 'Items.Specification', NULL, 'TEXT', '품목', NULL, NULL, NULL, 104
+        UNION ALL SELECT 'SHIPMENT', 'Items.Model', NULL, 'TEXT', '품목', NULL, NULL, NULL, 105
+        UNION ALL SELECT 'SHIPMENT', 'Items.ProcessName', NULL, 'TEXT', '품목', NULL, '열처리 공정명', NULL, 106
+        UNION ALL SELECT 'SHIPMENT', 'Items.Qty', NULL, 'NUMBER', '품목', '#,##0', '출하수량 (시험편 제외)', '400', 107
+        UNION ALL SELECT 'SHIPMENT', 'Items.Weight', NULL, 'NUMBER', '품목', '#,##0.0', NULL, NULL, 108
+        UNION ALL SELECT 'SHIPMENT', 'Items.PriceUnit', NULL, 'TEXT', '품목', NULL, '단가 구분 표시명 (공통코드 PRICE_BASIS)', 'ea', 109
+        UNION ALL SELECT 'SHIPMENT', 'Items.UnitPrice', NULL, 'NUMBER', '품목', '#,##0', NULL, NULL, 110
+        UNION ALL SELECT 'SHIPMENT', 'Items.Amount', NULL, 'NUMBER', '품목', '#,##0', NULL, NULL, 111
+        UNION ALL SELECT 'SHIPMENT', 'Items.Vat', NULL, 'NUMBER', '품목', '#,##0', '행 세액 = 금액 × 세율 (표시용)', NULL, 112
+        UNION ALL SELECT 'SHIPMENT', 'Items.SubmitLot', NULL, 'TEXT', '품목', NULL, NULL, NULL, 113
+        UNION ALL SELECT 'SHIPMENT', 'Items.CustomerLot', NULL, 'TEXT', '품목', NULL, NULL, NULL, 114
+        UNION ALL SELECT 'SHIPMENT', 'Stamp', '도장', 'IMAGE', '공급자', NULL, 'company.stamp_image', NULL, 120) v
+  JOIN print_data_source ds ON ds.data_source_code = v.ds;
+
 -- =====================================================================
 -- 9.6 관리자 설정 초기값 (구 코드 하드코딩 값 — 설계안 §15.4)
 -- =====================================================================
@@ -1945,6 +2027,7 @@ INSERT INTO system_setting (setting_key, category, setting_name, value_type, def
  ('schedule.refresh_interval_sec',    '스케줄', '현황 자동 새로고침 주기',           'INT',     '60',    10, 3600, '초', '구 Timer Interval 60_000 (웹은 SignalR 푸시 + 보조 폴링)', 0, 20),
  ('schedule.default_running_time_min','스케줄', '표준 없을 때 기본 작업시간',        'DECIMAL', '480',   1, 10080, '분', '구 RunningTime ?? 8.0m', 0, 30),
  ('schedule.temp_lot_prefix',         '스케줄', '임시 LOT번호 접두어',              'STRING',  'P',     NULL, NULL, NULL, '구 $"P{yyMMdd}-…"', 0, 40),
+ ('schedule.board_days',              '스케줄', '생산계획 화면 기본 표시 일수',      'INT',     '2',     1, 14, '일', '구 화면 범위 08:00~익일 08:00 (1일) 고정', 0, 50),
  ('lot.number_format',                'LOT',    '작업 LOT번호 형식',                 'STRING',  '{yyMMdd}-{EQUIP}-{SEQ:000}', NULL, NULL, NULL, '치환: {yyMMdd} 작업일, {EQUIP} 설비이니셜, {SEQ:000} 설비·일자 순번', 0, 10),
  ('downtime.default_duration_min',    '설비',   '비가동 입력 기본 시간',             'INT',     '60',    1, 1440, '분', '구 08:00~09:00 기본값', 0, 10),
  ('sales.vat_rate',                   '영업',   '부가세율',                          'DECIMAL', '0.10',  0, 1, NULL, '구 OutputSheet TAX_RATE 0.1m', 0, 10),
@@ -1973,7 +2056,9 @@ INSERT INTO common_code_group (group_code, group_name, description) VALUES
  ('PRIORITY',            '우선순위',      '구 ProcessSheet Priority switch (표시명·색상)'),
  ('INSPECTION_TYPE',     '검사 구분',     '구 TI/TP/TO'),
  ('CLOSING_STATUS',      '마감 상태',     '구 ClosingStatus enum (미마감/마감완료/이월)'),
- ('PRICE_BASIS',         '단가 적용 구분', '구 t_part.unit (ea/kg/ch)');
+ ('PRICE_BASIS',         '단가 적용 구분', '구 t_part.unit (ea/kg/ch)'),
+ ('SCHEDULE_STATUS',     '계획 상태',     '계획 블록 PLANNED/CONFIRMED/RELEASED/CANCELLED (설계 §4)'),
+ ('RUNNING_TIME_SOURCE', '작업시간 출처', '스케줄 작업시간 결정 5단계 (설계 §7)');
 
 INSERT INTO common_code (common_code_group_id, code, code_name, sort_order, attr_json, is_system)
 SELECT g.common_code_group_id, v.code, v.name, v.ord, v.attr, 1
@@ -2007,7 +2092,16 @@ SELECT g.common_code_group_id, v.code, v.name, v.ord, v.attr, 1
         UNION ALL SELECT 'PRICE_BASIS', 'KG', 'kg', 2, '{"legacy":"kg"}'
         UNION ALL SELECT 'PRICE_BASIS', 'CHARGE', 'ch', 3, '{"legacy":"ch"}'
         UNION ALL SELECT 'DEFECT_ACTION', 'SCRAP', '폐기', 5, NULL
-        UNION ALL SELECT 'DEFECT_ACTION', 'RETURN', '반송', 6, NULL) v
+        UNION ALL SELECT 'DEFECT_ACTION', 'RETURN', '반송', 6, NULL
+        UNION ALL SELECT 'SCHEDULE_STATUS', 'PLANNED', '계획', 1, '{"color":"#1677FF"}'
+        UNION ALL SELECT 'SCHEDULE_STATUS', 'CONFIRMED', '확정', 2, '{"color":"#722ED1"}'
+        UNION ALL SELECT 'SCHEDULE_STATUS', 'RELEASED', '작업지시', 3, '{"color":"#52C41A"}'
+        UNION ALL SELECT 'SCHEDULE_STATUS', 'CANCELLED', '취소', 4, '{"color":"#BFBFBF"}'
+        UNION ALL SELECT 'RUNNING_TIME_SOURCE', 'STANDARD', '작업표준', 1, NULL
+        UNION ALL SELECT 'RUNNING_TIME_SOURCE', 'PREVIOUS_WORK', '직전 작업', 2, NULL
+        UNION ALL SELECT 'RUNNING_TIME_SOURCE', 'DEFAULT_TIME', '설비 기준시간', 3, NULL
+        UNION ALL SELECT 'RUNNING_TIME_SOURCE', 'USER_INPUT', '사용자 입력', 4, NULL
+        UNION ALL SELECT 'RUNNING_TIME_SOURCE', 'SETTING', '기본 설정값', 5, NULL) v
   JOIN common_code_group g ON g.group_code = v.grp;
 
 -- =====================================================================
@@ -2055,11 +2149,12 @@ INSERT INTO menu (menu_key, menu_name, parent_menu_id, route, sort_order) VALUES
 
 INSERT INTO menu (menu_key, menu_name, parent_menu_id, route, sort_order)
 SELECT v.k, v.n, p.menu_id, v.r, v.o
-  FROM (SELECT 'system.user' k, '사용자 관리' n, 'system' parent, '/system/users' r, 10 o
+  FROM (SELECT 'production.schedule' k, '생산계획' n, 'production' parent, '/production/schedule' r, 10 o        UNION ALL SELECT 'system.user', '사용자 관리', 'system', '/system/users', 10
         UNION ALL SELECT 'system.role',    '역할·권한',   'system', '/system/roles',      20
         UNION ALL SELECT 'system.setting', '관리자 설정', 'system', '/system/settings',   30
         UNION ALL SELECT 'system.code',    '공통코드',    'system', '/system/codes',      40
-        UNION ALL SELECT 'system.audit',   '변경 이력',   'system', '/system/audit-logs', 50) v
+        UNION ALL SELECT 'system.audit',   '변경 이력',   'system', '/system/audit-logs', 50
+        UNION ALL SELECT 'system.print',   '출력 양식',   'system', '/system/print-templates', 60) v
   JOIN menu p ON p.menu_key = v.parent;
 
 -- 관리자 = 모든 메뉴 전체 권한 (메뉴 INSERT 뒤에 둔다)

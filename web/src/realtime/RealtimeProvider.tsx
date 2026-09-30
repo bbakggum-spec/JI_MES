@@ -34,6 +34,10 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
     connection.on(RealtimeEvents.commonCodeChanged, () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.commonCodes })
     })
+    // 다른 사용자의 조작·지연 반영 재계산 → 보드·배정 대기 다시 조회 (구 60초 건수 비교 폴링 대체, 설계 §15.1 S5)
+    connection.on(RealtimeEvents.scheduleChanged, () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.schedule })
+    })
     connection.onreconnecting(() => report('reconnecting'))
     connection.onreconnected(() => {
       report('connected')
