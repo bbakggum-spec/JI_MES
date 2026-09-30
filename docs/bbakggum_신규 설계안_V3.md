@@ -1,4 +1,4 @@
-# bbakggum DB 구조개편 설계안 V3.8
+# bbakggum DB 구조개편 설계안 V3.9
 
 | 항목 | 내용 |
 |-|-|
@@ -20,6 +20,7 @@
 | V3.5 | 2026-09-30 | **모든 출력물 = 사용자 엑셀 양식 등록 방식**, 출력 용도 **사용자 확장**(`print_purpose`), 양식 파일 **DB 버전 보관**, 치환자 사전(`print_field`), 출력 이력(`print_log`), **구현 시 주의사항**(§15: 스케줄·진행현황, 엑셀 양식 출력 — 기존 소스 분석), 기존 DB 보존 + 신규 구축 원칙 명시 |
 | V3.6 | 2026-09-30 | 양식 등록 방식 **2가지**: EXCEL(사용자 수정 양식) + **FIXED**(코드 고정 레이아웃 — 거래명세표 등 구 PrintDoc 7종, 레이아웃 옵션은 관리자 조정), **하드코딩 → 관리자 설정**(§15.4, `system_setting` 확장·초기값, 로직 참조 공통코드, 단말별 프린터 `workstation_print_setting`, 도장 이미지 DB 보관) |
 | V3.8 | 2026-09-30 | **1단계 기존 폼 분석 반영** (`docs/legacy_forms/`): 입고번호 = 스캔 수주번호(`order_item_no`), 수주 행 요구사항 Snapshot·우선순위·별도관리·고객 작업지시번호, 품목 단가 적용 구분(EA/KG/CHARGE), 설비당 투입 중 작업 1건, 한 LOT에 같은 수주 1회, 관리항목 템플릿(`step_template_condition`), 검사구분(입고/공정/출하)·재검사·**검사 결과 공통 적용**, 부적합 처리구분(재처리/출하/선별/보류/폐기/반송), 출하 시험편·거래처 Snapshot·전표 단위 마감 상태(미마감/마감/이월), 공통 첨부(`attachment`), 설정·공통코드 추가. 배정 병합 시 최대 작업시간, 지연 시 뒤 배정 계획시각 자동 이동 |
+| V3.9 | 2026-09-30 | **2단계 API 골격** (§18): 쿠키 인증·역할 합집합 권한(fail-closed)·감사·설정/공통코드 캐시·row_version·SignalR. DDL: 권한 초기 데이터(ADMIN 역할, 시스템 메뉴 트리 — §9.8), 설정 `auth.permission_cache_sec`·`auth.login_max_attempts_per_min`·`auth.password_min_length` 추가 |
 | V3.7 | 2026-09-30 | 고정 양식 6종 전체 **레이아웃 옵션 스키마·초기값** 확정(§15.3.1), 우선순위 표시명·색상 하드코딩 → 공통코드 `PRIORITY`, `sales_order.priority` 기본값 1(일반)로 수정 (기존 코드 기준 3 = 긴급) |
 
 > SQL은 `.sql` 파일 하나로만 관리한다 (문서와 DDL 불일치 방지).
@@ -668,3 +669,67 @@ print_log                                발행 이력 (양식 버전, 대상, �
 | 스케줄 | 병합 시 최대 작업시간, 지연 시 뒤 배정 계획시각 자동 이동, 작업시간 결정 5단계 | F_WorkPlanForm, B2·B3 |
 | 권한 | 로그인 사용자 × **부서(역할) 복수 선택** — 공용 PC에서 생산+영업처럼 여러 부서를 가진 사용자는 메뉴 합집합. 권한 없으면 차단(fail-closed) | F_Main, B8 |
 | 첨부 | 품목 도면·이미지, 조직사진, 경화층 차트 → `attachment` (PC 로컬 폴더 폐지) | F_PartDetailForm, F_InspectionAddForm |
+
+
+---
+
+# 18. API 골격 (2단계, V3.9)
+
+위치: `api/` — `JiMes.slnx`, `src/JiMes.Api` (ASP.NET Core 10 Minimal API + Dapper + MySqlConnector), `tests/JiMes.Api.Tests` (xUnit, 테스트 DB `bbakggum_v2_test`를 DDL에서 매번 새로 생성).
+
+## 18.1 구조
+
+| 폴더 | 내용 |
+|-|-|
+| `Infrastructure/Data` | 연결 팩토리(`ConnectionStrings:Main`), Dapper snake_case 매핑, `RowVersion.ExecuteVersionedUpdateAsync` |
+| `Infrastructure/Security` | 쿠키 인증, `PermissionService`(역할 합집합·캐시), `RequirePermission`/`RequireLogin`, 비밀번호(PBKDF2), 최초 관리자 생성 |
+| `Infrastructure/Audit` | `AuditWriter` — 변경과 **같은 트랜잭션**에서 `audit_log` 기록, before/after는 snake_case JSON |
+| `Infrastructure/Settings`·`Codes` | `system_setting`·`common_code` 메모리 캐시 (시작 시 적재, 변경 API가 갱신) |
+| `Infrastructure/Realtime` | SignalR `/hubs/events` (서버 → 웹 알림 전용) |
+| `Infrastructure/Errors` | 업무 예외 → ProblemDetails(`code` 포함). 404 `NOT_FOUND`, 409 `CONCURRENCY_CONFLICT`, 422 업무 규칙, 400 `VALIDATION` |
+| `Features/*` | 기능별 엔드포인트 (Auth, Settings, CommonCodes, AuditLogs, Health) |
+
+## 18.2 인증
+
+- 쿠키 인증 (`jimes.auth`, HttpOnly, **SameSite=Strict** — CSRF 방지). 웹은 Vite 프록시/같은 출처로 `/api`, `/hubs`를 호출한다.
+- 세션 쿠키(브라우저 종료 시 삭제) + 서버 측 만료 `auth.session_timeout_min`, 요청이 있으면 연장.
+- 비활성·삭제 계정은 기존 쿠키도 거부 (권한 캐시 주기 `auth.permission_cache_sec` 안에 반영, API로 바꾸면 즉시).
+- 로그인 실패는 계정 없음·비밀번호 오류·비활성을 구분하지 않는다 (`INVALID_CREDENTIALS`). IP당 분당 시도 제한 `auth.login_max_attempts_per_min`.
+- **최초 관리자:** `app_user`가 비어 있을 때만 설정 `Bootstrap:AdminLoginId/AdminUserName/AdminRoleCode` + 환경변수 `Bootstrap__AdminPassword`로 생성 (DDL에 계정·비밀번호를 넣지 않음). 개발용 값은 `launchSettings.json`.
+
+## 18.3 권한 (fail-closed)
+
+- API 권한 키 = `menu.menu_key`. 유효 권한 = 사용자의 **활성 역할들의 `role_menu` 합집합** (B8 공용 PC 복수 부서).
+- 모든 `/api`·`/hubs` 엔드포인트는 `RequirePermission(메뉴키, Read|Create|Update|Delete)` / `RequireLogin()` / `AllowAnonymous()` 중 하나를 **반드시 선언**. 선언이 없어도 기본 정책(로그인 필수)으로 막히고, 누락은 테스트가 잡는다.
+- 관리자 = `ADMIN` 역할이 DDL에서 **모든 메뉴 전체 권한**을 받는다 (역할 코드 우회 로직 없음). 메뉴는 화면 단계마다 DDL §9.8에 추가하고, 코드 상수 `MenuKeys`와 DDL 불일치는 테스트가 잡는다.
+- `GET /api/auth/me`: 사용자·역할 + **읽기 권한 있는 메뉴와 그 상위만** 담은 트리 + 메뉴별 권한 (웹 사이드바·버튼 표시용).
+
+## 18.4 설정·공통코드 캐시 (§15.4 구현)
+
+- 시작 시 전체 적재. 저장값이 형식·범위를 벗어나면 `default_value`로 동작하고 경고 로그 (`isFallback` 표시).
+- 변경: 행 잠금(`FOR UPDATE`) → 검증·정규화 → 저장 → `audit_log` → 커밋 → 캐시 갱신 → SignalR `settingChanged {key}` / `commonCodeChanged {groupCode, code}`.
+- `is_system` 공통코드는 표시명·순서·속성·비고만 수정 (사용 여부 변경 시 422 `SYSTEM_CODE_LOCKED`). 조회는 로그인 사용자 전체.
+- 코드에서 읽는 설정 키는 `SettingKeys` 상수로만 — DDL에 없으면 테스트 실패.
+
+## 18.5 row_version
+
+- 읽기 응답에 `rowVersion`을 담고, 수정 요청이 그대로 돌려보낸다.
+- UPDATE는 `SET …, row_version = row_version + 1 WHERE {table}_id = @Id AND row_version = @RowVersion` 형식으로 `ExecuteVersionedUpdateAsync`에 넘긴다 (형식이 아니면 거부). 0행이면 대상이 없으면 404, 있으면 409.
+
+## 18.6 API 목록 (2단계)
+
+| 메서드·경로 | 권한 |
+|-|-|
+| `GET /api/health` | 익명 |
+| `POST /api/auth/login` · `POST /api/auth/logout` · `GET /api/auth/me` · `POST /api/auth/change-password` | 익명(로그인) / 로그인 |
+| `GET /api/settings` · `PUT /api/settings/{key}` · `POST /api/settings/{key}/reset` | `system.setting` R / U / U |
+| `GET /api/common-codes` · `PUT /api/common-codes/{id}` | 로그인 / `system.code` U |
+| `GET /api/audit-logs?tableName&recordId&appUserId&from&to&page&pageSize` | `system.audit` R |
+| `/hubs/events` (SignalR) | 로그인 |
+| `/openapi/v1.json` | 개발 환경만 |
+
+## 18.7 남은 일 (다음 단계에서)
+
+- 사용자·역할·메뉴 권한 관리 API (`system.user`, `system.role`) — 변경 시 `PermissionService.InvalidateAll()` 호출.
+- 운영 배포: Data Protection 키 저장 위치 지정(서버 재시작·다중 인스턴스 시 쿠키 유지), HTTPS, 파일 로그(`log.retention_days`).
+- 웹에 필요한 설정만 내려주는 조회 API (예: `schedule.refresh_interval_sec`, `schedule.day_start_time`) — 3단계 웹 골격과 함께.

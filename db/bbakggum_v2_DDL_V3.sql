@@ -1959,7 +1959,10 @@ INSERT INTO system_setting (setting_key, category, setting_name, value_type, def
  ('sales_order.item_number_format',   '영업',   '입고(수주)번호 형식',               'STRING',  'I{yyMMdd}-{SEQ:000}', NULL, NULL, NULL, '구 IncomeAddService', 0, 30),
  ('shipment.number_format',           '영업',   '출하 전표번호 형식',                'STRING',  'O{yyMMdd}-{SEQ:000}', NULL, NULL, NULL, '구 OutcomeAddService', 0, 40),
  ('inspection.number_format',         '품질',   '검사번호 형식',                     'STRING',  '{TYPE}{yyMMdd}-{SEQ:000}', NULL, NULL, NULL, '{TYPE} = 공통코드 INSPECTION_TYPE attr prefix (TI/TP/TO)', 0, 10),
- ('auth.session_timeout_min',         '시스템', '로그인 세션 유지 시간',             'INT',     '480',   5, 1440, '분', '신규', 0, 20);
+ ('auth.session_timeout_min',         '시스템', '로그인 세션 유지 시간',             'INT',     '480',   5, 1440, '분', '신규 — 요청이 있으면 연장 (sliding)', 0, 20),
+ ('auth.permission_cache_sec',        '시스템', '권한 캐시 유지 시간',               'INT',     '60',    0, 3600, '초', '신규 — 역할·메뉴 권한 변경이 반영되기까지 최대 시간 (API에서 변경 시 즉시 반영)', 0, 30),
+ ('auth.login_max_attempts_per_min',  '시스템', '로그인 시도 제한 (IP당 1분)',       'INT',     '10',    1, 1000, '회', '신규 — 비밀번호 대입 방지', 1, 40),
+ ('auth.password_min_length',         '시스템', '비밀번호 최소 길이',                'INT',     '8',     4, 128, '자', '신규', 0, 50);
 
 -- 로직에서 참조하는 공통코드 (is_system = 1: 코드 고정, 표시명만 수정 가능)
 INSERT INTO common_code_group (group_code, group_name, description) VALUES
@@ -2030,6 +2033,40 @@ CREATE TABLE attachment (
     KEY ix_attachment_owner (owner_table, owner_id, attachment_kind),
     CONSTRAINT ck_attachment_body CHECK (file_content IS NOT NULL OR storage_path IS NOT NULL)
 ) ENGINE=InnoDB COMMENT='공통 첨부 — 구 PC 로컬 폴더 파일 대체 (PartDrawingFolder, PartImageFolder, Structure, HardnessChart)';
+
+-- =====================================================================
+-- 9.8 권한 초기 데이터 (설계안 §18.3)
+--   * 메뉴는 화면 단계마다 이 절에 추가한다 (menu_key = API 권한 키).
+--   * 관리자 역할은 이 절 끝에서 모든 메뉴의 전체 권한을 받는다 — 역할 코드로 우회하는 로직은 두지 않음 (fail-closed).
+--   * 관리자 계정은 DDL에 넣지 않는다. API 첫 기동 시 app_user가 비어 있으면 설정(Bootstrap:*)으로 생성.
+-- =====================================================================
+
+INSERT INTO role (role_code, role_name, description) VALUES
+ ('ADMIN', '시스템관리자', '전체 메뉴 권한 (구 F_Option 비밀번호 대체)');
+
+INSERT INTO menu (menu_key, menu_name, parent_menu_id, route, sort_order) VALUES
+ ('master',     '기준정보', NULL, NULL, 10),
+ ('sales',      '영업',     NULL, NULL, 20),
+ ('production', '생산',     NULL, NULL, 30),
+ ('quality',    '품질',     NULL, NULL, 40),
+ ('equipment',  '설비',     NULL, NULL, 50),
+ ('report',     '조회',     NULL, NULL, 60),
+ ('system',     '시스템',   NULL, NULL, 90);
+
+INSERT INTO menu (menu_key, menu_name, parent_menu_id, route, sort_order)
+SELECT v.k, v.n, p.menu_id, v.r, v.o
+  FROM (SELECT 'system.user' k, '사용자 관리' n, 'system' parent, '/system/users' r, 10 o
+        UNION ALL SELECT 'system.role',    '역할·권한',   'system', '/system/roles',      20
+        UNION ALL SELECT 'system.setting', '관리자 설정', 'system', '/system/settings',   30
+        UNION ALL SELECT 'system.code',    '공통코드',    'system', '/system/codes',      40
+        UNION ALL SELECT 'system.audit',   '변경 이력',   'system', '/system/audit-logs', 50) v
+  JOIN menu p ON p.menu_key = v.parent;
+
+-- 관리자 = 모든 메뉴 전체 권한 (메뉴 INSERT 뒤에 둔다)
+INSERT INTO role_menu (role_id, menu_id, can_read, can_create, can_update, can_delete)
+SELECT r.role_id, m.menu_id, 1, 1, 1, 1
+  FROM role r CROSS JOIN menu m
+ WHERE r.role_code = 'ADMIN';
 
 -- =====================================================================
 -- 10. 집계 VIEW (저장 수량 대신 계산)

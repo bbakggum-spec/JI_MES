@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json.schemastore.org/launchsettings.json",
+  "profiles": {
+    "http": {
+      "commandName": "Project",
+      "dotnetRunMessages": true,
+      "launchBrowser": false,
+      "applicationUrl": "http://localhost:5080",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "ConnectionStrings__Main": "Server=127.0.0.1;Port=3307;Database=bbakggum_v2;User ID=root;Password=;SslMode=None",
+        "Bootstrap__AdminPassword": "dev-admin-2026!"
+      }
+    }
+  }
+}
