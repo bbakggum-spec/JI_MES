@@ -115,7 +115,7 @@ public static class PrintEndpoints
 
     private const string XlsxType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
-    private static IResult FileOf(PrintResult r)
+    internal static IResult FileOf(PrintResult r)
     {
         // 발행 이력 id 를 헤더로 알려 화면이 재발행·이력 연결에 쓴다
         return new PrintFileResult(r);
