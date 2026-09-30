@@ -1358,6 +1358,7 @@ CREATE TABLE production_work_condition (
     production_work_condition_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     production_work_id  BIGINT UNSIGNED NOT NULL,
     condition_item_id   BIGINT UNSIGNED NOT NULL,
+    item_sequence_no    INT          NULL COMMENT '관리항목(행) 순서 (표준 standard_version_item 에서 복사)',
     step_sequence_no    INT          NULL COMMENT '단계 순서 (표준 standard_version_step 에서 복사) — NULL = 단계 무관 LOT 공통 조건',
     step_name_snapshot  VARCHAR(100) NULL COMMENT '단계 이름 (복사 당시)',
     set_value           VARCHAR(100) NULL COMMENT '확정 조건값 (선택 표준에서 복사, 작업자 수정 가능)',
@@ -2207,6 +2208,7 @@ INSERT INTO menu (menu_key, menu_name, parent_menu_id, route, sort_order) VALUES
 INSERT INTO menu (menu_key, menu_name, parent_menu_id, route, sort_order)
 SELECT v.k, v.n, p.menu_id, v.r, v.o
   FROM (SELECT 'production.schedule' k, '생산계획' n, 'production' parent, '/production/schedule' r, 10 o
+        UNION ALL SELECT 'production.work',         '작업(투입)',    'production', '/production/works', 20
         UNION ALL SELECT 'sales.order',             '수주(입고)',    'sales', '/sales/orders', 10
         UNION ALL SELECT 'master.company',          '자사 정보',     'master', '/master/company', 10
         UNION ALL SELECT 'master.customer',         '거래처',        'master', '/master/customer', 20

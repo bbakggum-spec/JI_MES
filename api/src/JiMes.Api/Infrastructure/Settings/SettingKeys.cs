@@ -16,6 +16,7 @@ public static class SettingKeys
     public const string ScheduleTempLotPrefix = "schedule.temp_lot_prefix";
     public const string ScheduleBoardDays = "schedule.board_days";
     public const string LotNumberFormat = "lot.number_format";
+    public const string WorkCompleteTimeRoundMin = "work.complete_time_round_min";
     public const string PrintPdfConverterPath = "print.pdf_converter_path";
     public const string PrintPdfConvertTimeoutSec = "print.pdf_convert_timeout_sec";
     public const string PrintMaxTemplateFileMb = "print.max_template_file_mb";

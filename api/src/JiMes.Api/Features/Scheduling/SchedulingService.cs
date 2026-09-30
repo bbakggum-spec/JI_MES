@@ -276,8 +276,6 @@ public sealed class SchedulingService(
         var equipment = await conn.QuerySingleAsync<EquipmentInfoRow>(
             "SELECT equipment_name, COALESCE(equipment_initial, equipment_code) AS initial FROM equipment WHERE equipment_id = @equipmentId",
             new { equipmentId }, tx);
-        var lotFormat = settings.GetString(SettingKeys.LotNumberFormat);
-        var tokens = new Dictionary<string, string> { ["EQUIP"] = equipment.Initial };
         var now = Now();
         var lots = new List<ReleasedLot>();
         foreach (var b in targets)
@@ -296,35 +294,10 @@ public sealed class SchedulingService(
             if (route.ItemCount == 0)
                 throw new BusinessRuleException("BLOCK_EMPTY", "수주가 담기지 않은 계획은 작업지시할 수 없습니다.");
 
-            // 순번: 이 설비·작업일의 마지막 LOT 순번 다음 (취소된 LOT 번호도 다시 쓰지 않는다)
-            var seq = await conn.ExecuteScalarAsync<int>(
-                "SELECT COALESCE(MAX(lot_seq), 0) FROM production_work WHERE equipment_id = @equipmentId AND work_date = @WorkDate",
-                new { equipmentId, b.WorkDate }, tx);
-            string lotNo;
-            do lotNo = NumberFormat.Format(lotFormat, DateOnly.FromDateTime(b.WorkDate), ++seq, tokens);
-            while (await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM production_work WHERE lot_no = @lotNo", new { lotNo }, tx) > 0);
-
-            var workId = await conn.ExecuteScalarAsync<long>(
-                """
-                INSERT INTO production_work (lot_no, lot_seq, production_schedule_id, unit_process_id, equipment_id, is_main_process,
-                       heat_process_version_id, work_date, status, expected_duration_min, is_rework,
-                       unit_process_name_snapshot, equipment_name_snapshot, heat_process_name_snapshot, created_by, updated_by)
-                VALUES (@lotNo, @seq, @ProductionScheduleId, @UnitProcessId, @equipmentId, @isMain,
-                        @routeId, @WorkDate, 'ALLOCATED', @PlannedDurationMin, @isRework,
-                        @unitName, @equipmentName, @routeName, @UserId, @UserId);
-                SELECT LAST_INSERT_ID();
-                """,
-                new
-                {
-                    lotNo, seq, b.ProductionScheduleId, b.UnitProcessId, equipmentId, isMain = route.IsMainProcess,
-                    routeId = route.RouteCount == 1 ? route.RouteId : null, b.WorkDate, b.PlannedDurationMin,
-                    isRework = await conn.ExecuteScalarAsync<bool>("SELECT is_rework FROM production_schedule WHERE production_schedule_id = @ProductionScheduleId", b, tx),
-                    unitName = route.UnitProcessName, equipmentName = equipment.EquipmentName,
-                    routeName = route.RouteCount == 1 ? route.RouteName : null, currentUser.UserId,
-                }, tx);
-            await conn.ExecuteAsync(
-                "INSERT INTO production_work_event (production_work_id, event_type, event_at, created_by) VALUES (@workId, 'ALLOCATE', @now, @UserId)",
-                new { workId, now, currentUser.UserId }, tx);
+            var isRework = await conn.ExecuteScalarAsync<bool>("SELECT is_rework FROM production_schedule WHERE production_schedule_id = @ProductionScheduleId", b, tx);
+            var (workId, lotNo) = await InsertWorkAsync(conn, tx, new NewWork(b.ProductionScheduleId, b.UnitProcessId, equipmentId, b.WorkDate,
+                b.PlannedDurationMin, isRework, route.IsMainProcess, route.RouteCount == 1 ? route.RouteId : null,
+                route.RouteCount == 1 ? route.RouteName : null, route.UnitProcessName, equipment.EquipmentName, equipment.Initial), now);
             await conn.ExecuteAsync(
                 """
                 UPDATE production_schedule SET status = 'RELEASED', updated_by = @UserId, row_version = row_version + 1
@@ -338,6 +311,76 @@ public sealed class SchedulingService(
         await tx.CommitAsync(ct);
         await PublishAsync([equipmentId], ct);
         return lots;
+    }
+
+    private sealed record NewWork(long ScheduleId, long UnitProcessId, long EquipmentId, DateTime WorkDate, decimal DurationMin, bool IsRework,
+        bool IsMainProcess, long? RouteId, string? RouteName, string? UnitProcessName, string EquipmentName, string EquipmentInitial);
+
+    /// <summary>작업 LOT 생성 (작업지시·즉시 작업 공용) — LOT번호 = lot.number_format, 설비·작업일 순번 (취소된 순번도 다시 쓰지 않음)</summary>
+    private async Task<(long WorkId, string LotNo)> InsertWorkAsync(MySqlConnection conn, MySqlTransaction tx, NewWork w, DateTime now)
+    {
+        var tokens = new Dictionary<string, string> { ["EQUIP"] = w.EquipmentInitial };
+        var lotFormat = settings.GetString(SettingKeys.LotNumberFormat);
+        var seq = await conn.ExecuteScalarAsync<int>(
+            "SELECT COALESCE(MAX(lot_seq), 0) FROM production_work WHERE equipment_id = @EquipmentId AND work_date = @WorkDate", w, tx);
+        string lotNo;
+        do lotNo = NumberFormat.Format(lotFormat, DateOnly.FromDateTime(w.WorkDate), ++seq, tokens);
+        while (await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM production_work WHERE lot_no = @lotNo", new { lotNo }, tx) > 0);
+
+        var workId = await conn.ExecuteScalarAsync<long>(
+            """
+            INSERT INTO production_work (lot_no, lot_seq, production_schedule_id, unit_process_id, equipment_id, is_main_process,
+                   heat_process_version_id, work_date, status, expected_duration_min, is_rework,
+                   unit_process_name_snapshot, equipment_name_snapshot, heat_process_name_snapshot, created_by, updated_by)
+            VALUES (@lotNo, @seq, @ScheduleId, @UnitProcessId, @EquipmentId, @IsMainProcess,
+                    @RouteId, @WorkDate, 'ALLOCATED', @DurationMin, @IsRework,
+                    @UnitProcessName, @EquipmentName, @RouteName, @UserId, @UserId);
+            SELECT LAST_INSERT_ID();
+            """,
+            new
+            {
+                lotNo, seq, w.ScheduleId, w.UnitProcessId, w.EquipmentId, w.IsMainProcess, w.RouteId, w.WorkDate, w.DurationMin, w.IsRework,
+                w.UnitProcessName, w.EquipmentName, w.RouteName, currentUser.UserId,
+            }, tx);
+        await conn.ExecuteAsync(
+            "INSERT INTO production_work_event (production_work_id, event_type, event_at, created_by) VALUES (@workId, 'ALLOCATE', @now, @UserId)",
+            new { workId, now, currentUser.UserId }, tx);
+        return (workId, lotNo);
+    }
+
+    /// <summary>
+    /// 즉시 작업 (구 F_GasForm NEW — 계획 없이 바로 작업) — 계획 1:1 규칙을 지키려고 지금 시각의 작업지시된 계획 블록을 함께 만든다.
+    /// 작업시간은 설정 기본값, 투입 후 표준 확정 때 표준 작업시간으로 바뀐다.
+    /// </summary>
+    public async Task<ReleasedLot> CreateAdHocAsync(long equipmentId, long unitProcessId, CancellationToken ct)
+    {
+        await using var conn = await db.OpenAsync(ct);
+        await using var tx = await conn.BeginTransactionAsync(ct);
+        await LockEquipmentAsync(conn, tx, [equipmentId]);
+        var unitName = await conn.ExecuteScalarAsync<string?>(
+            "SELECT unit_process_name FROM unit_process WHERE unit_process_id = @unitProcessId AND is_active = 1", new { unitProcessId }, tx)
+            ?? throw new RequestValidationException("unitProcessId", "단위공정을 선택하세요.");
+        var equipment = await conn.QuerySingleAsync<EquipmentInfoRow>(
+            "SELECT equipment_name, COALESCE(equipment_initial, equipment_code) AS initial FROM equipment WHERE equipment_id = @equipmentId",
+            new { equipmentId }, tx);
+        var now = Now();
+        var minutes = settings.GetDecimal(SettingKeys.ScheduleDefaultRunningTimeMin);
+        var workDate = ScheduleCalculator.WorkDateOf(now, await DayStartAsync(conn, tx)).ToDateTime(TimeOnly.MinValue);
+        var blockId = await conn.ExecuteScalarAsync<long>(
+            """
+            INSERT INTO production_schedule (work_date, equipment_id, unit_process_id, sequence_no, planned_qty, planned_duration_min, duration_source,
+                   planned_start_at, planned_end_at, status, remark, created_by, updated_by)
+            VALUES (@workDate, @equipmentId, @unitProcessId, 0, 0, @minutes, 'SETTING', @now, @end, 'RELEASED', '즉시 작업', @UserId, @UserId);
+            SELECT LAST_INSERT_ID();
+            """, new { workDate, equipmentId, unitProcessId, minutes, now, end = now + ScheduleCalculator.Duration(minutes), currentUser.UserId }, tx);
+        var (workId, lotNo) = await InsertWorkAsync(conn, tx, new NewWork(blockId, unitProcessId, equipmentId, workDate, minutes, false, false, null, null,
+            unitName, equipment.EquipmentName, equipment.Initial), now);
+        await audit.WriteAsync(conn, tx, AuditAction.Create, "production_work", workId, null,
+            new { lot_no = lotNo, equipment_id = equipmentId, unit_process_id = unitProcessId, production_schedule_id = blockId, ad_hoc = true });
+        await RecalculateCoreAsync(conn, tx, equipmentId);
+        await tx.CommitAsync(ct);
+        await PublishAsync([equipmentId], ct);
+        return new ReleasedLot(blockId, workId, lotNo);
     }
 
     /// <summary>

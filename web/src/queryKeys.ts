@@ -10,5 +10,6 @@ export const queryKeys = {
   print: ['print'] as const,
   master: ['master'] as const,
   sales: ['sales'] as const,
+  works: ['works'] as const,
   admin: ['admin'] as const,
 }
