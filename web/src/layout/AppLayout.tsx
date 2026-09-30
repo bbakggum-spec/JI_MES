@@ -7,7 +7,7 @@ import { findMenuPath, flattenRoutes } from '../auth/permissions'
 import ChangePasswordModal from '../pages/ChangePasswordModal'
 import DashboardPage from '../pages/DashboardPage'
 import PlaceholderPage from '../pages/PlaceholderPage'
-import { pageRegistry } from '../pages/registry'
+import { pageFor } from '../pages/registry'
 import { useRealtimeStatus, type RealtimeStatus } from '../realtime/realtime'
 import { HOME_KEY, homeItem, toMenuItems } from './menuItems'
 
@@ -41,8 +41,8 @@ export default function AppLayout() {
   const routes = useMemo<RouteObject[]>(() => [
     { index: true, element: <DashboardPage /> },
     ...flattenRoutes(menus).map((m) => {
-      const Page = pageRegistry[m.menuKey]
-      return { path: m.route!, element: Page ? <Page /> : <PlaceholderPage title={m.menuName} /> }
+      const Page = pageFor(m.menuKey)
+      return { path: m.route!, element: Page ? <Page key={m.menuKey} menuKey={m.menuKey} /> : <PlaceholderPage title={m.menuName} /> }
     }),
     {
       path: '*',

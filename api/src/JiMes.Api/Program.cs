@@ -2,7 +2,11 @@ using System.Threading.RateLimiting;
 using JiMes.Api.Features.AuditLogs;
 using JiMes.Api.Features.Auth;
 using JiMes.Api.Features.CommonCodes;
+using JiMes.Api.Features.Admin;
 using JiMes.Api.Features.Health;
+using JiMes.Api.Features.Master;
+using JiMes.Api.Features.Master.Parts;
+using JiMes.Api.Features.Master.Process;
 using JiMes.Api.Features.Printing;
 using JiMes.Api.Features.Printing.Fixed;
 using JiMes.Api.Features.Printing.Providers;
@@ -104,6 +108,8 @@ services.AddSingleton<IPrintDataProvider, ShipmentProvider>();
 services.AddSingleton<IFixedRenderer, SalesSlipRenderer>();
 services.AddScoped<PrintService>();
 services.AddScoped<TemplateAdminService>();
+services.AddScoped<MasterService>();
+services.AddScoped<JiMes.Api.Features.Master.Parts.PartService>();
 
 var app = builder.Build();
 
@@ -126,6 +132,13 @@ app.MapCommonCodeEndpoints();
 app.MapAuditLogEndpoints();
 app.MapScheduleEndpoints();
 app.MapPrintEndpoints();
+app.MapMasterEndpoints();
+app.MapUserRoleEndpoints();
+app.MapPartEndpoints();
+app.MapHeatProcessEndpoints();
+app.MapStepTemplateEndpoints();
+app.MapStandardEndpoints();
+app.MapInspectionStandardEndpoints();
 app.MapHub<EventsHub>(EventsHub.Route).RequireLogin();
 // SPA 라우팅: /api·/hubs 가 아닌 경로는 index.html (없는 API 는 404 유지)
 app.MapFallbackToFile("{*path:nonfile:regex(^(?!api/|hubs/).*$)}", "index.html").AllowAnonymous();

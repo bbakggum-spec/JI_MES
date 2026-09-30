@@ -23,6 +23,8 @@ public static class SettingKeys
     public const string SalesVatRate = "sales.vat_rate";
     public const string SalesAmountRounding = "sales.amount_rounding";
     public const string FileStorageRoot = "file.storage_root";
+    public const string FileMaxAttachmentMb = "file.max_attachment_mb";
+    public const string StandardCodeFormat = "standard.code_format";
 
     /// <summary>
     /// 로그인 사용자 누구나 읽을 수 있는 설정 (GET /api/client-settings). 웹 화면 동작에 필요한 값만 둔다.

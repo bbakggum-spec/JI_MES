@@ -1,4 +1,4 @@
-# bbakggum DB 구조개편 설계안 V3.12
+# bbakggum DB 구조개편 설계안 V3.13
 
 | 항목 | 내용 |
 |-|-|
@@ -20,6 +20,7 @@
 | V3.5 | 2026-09-30 | **모든 출력물 = 사용자 엑셀 양식 등록 방식**, 출력 용도 **사용자 확장**(`print_purpose`), 양식 파일 **DB 버전 보관**, 치환자 사전(`print_field`), 출력 이력(`print_log`), **구현 시 주의사항**(§15: 스케줄·진행현황, 엑셀 양식 출력 — 기존 소스 분석), 기존 DB 보존 + 신규 구축 원칙 명시 |
 | V3.6 | 2026-09-30 | 양식 등록 방식 **2가지**: EXCEL(사용자 수정 양식) + **FIXED**(코드 고정 레이아웃 — 거래명세표 등 구 PrintDoc 7종, 레이아웃 옵션은 관리자 조정), **하드코딩 → 관리자 설정**(§15.4, `system_setting` 확장·초기값, 로직 참조 공통코드, 단말별 프린터 `workstation_print_setting`, 도장 이미지 DB 보관) |
 | V3.8 | 2026-09-30 | **1단계 기존 폼 분석 반영** (`docs/legacy_forms/`): 입고번호 = 스캔 수주번호(`order_item_no`), 수주 행 요구사항 Snapshot·우선순위·별도관리·고객 작업지시번호, 품목 단가 적용 구분(EA/KG/CHARGE), 설비당 투입 중 작업 1건, 한 LOT에 같은 수주 1회, 관리항목 템플릿(`step_template_condition`), 검사구분(입고/공정/출하)·재검사·**검사 결과 공통 적용**, 부적합 처리구분(재처리/출하/선별/보류/폐기/반송), 출하 시험편·거래처 Snapshot·전표 단위 마감 상태(미마감/마감/이월), 공통 첨부(`attachment`), 설정·공통코드 추가. 배정 병합 시 최대 작업시간, 지연 시 뒤 배정 계획시각 자동 이동 |
+| V3.13 | 2026-09-30 | **5단계 기준정보** (§22, §12 확인 ⑧⑨): 단순 기준정보 14종 = 정의 기반 범용 API·화면(정의 ↔ DDL 대조 테스트), 사용자·역할 권한 관리, 품목(거래처 품번·공정·도면/이미지 첨부·성적서 양식 연결·이력), 공정 경로·단계 템플릿·작업표준(행렬·버전·복사), 검사기준(버전·항목·측정 위치). DDL: 메뉴 master.* 19개, 공통코드 `CUSTOMER_TYPE`·`DAY_TYPE`·`CONDITION_VALUE_TYPE`·`ATTACHMENT_KIND`·`RANGE_TYPE`, 설정 `file.max_attachment_mb`·`standard.code_format` |
 | V3.12 | 2026-09-30 | **4단계 ② 출력 엔진** (§21, §12 확인 4건): EXCEL(치환·반복행·이미지·구 좌표 키 호환 → 서버 LibreOffice PDF) / FIXED(거래명세표 렌더러 + 옵션), 양식 선택 단일 함수, 발행 이력·재발행, 양식 관리 화면. DDL: `print_template.is_default`(용도 기본 양식), `shipment.supply_amount`·`vat_amount`·`total_amount`(F2), 치환자 사전 초기 데이터(검사 대상·출하 전표), 메뉴 `system.print`, 고정 양식 글꼴 = 설치 이름 목록("굴림체", "맑은 고딕"), 거래명세표 여백 20 |
 | V3.11 | 2026-09-30 | **4단계 ① 스케줄 서비스 + Gantt** (§20, §7 규칙 구체화, §12 확인 3건): 계산 엔진·5단계 작업시간·설비 잠금·지연 반영 재계산·구 SP 실제 실행 비교. DDL: `production_schedule.duration_source`, 공통코드 `SCHEDULE_STATUS`·`RUNNING_TIME_SOURCE`, 설정 `schedule.board_days`, 메뉴 `production.schedule` |
 | V3.10 | 2026-09-30 | **3단계 웹 골격** (§19): React + Vite + Ant Design, 쿠키 세션·권한 메뉴(DB 메뉴 트리)·SignalR 캐시 무효화·대시보드 틀·시스템 화면 3종(관리자 설정·공통코드·변경 이력). API: 클라이언트 설정 조회 `GET /api/client-settings`, 운영 시 웹 정적 파일 제공(같은 출처) |
@@ -462,6 +463,13 @@ print_log                                발행 이력 (양식 버전, 대상, �
 | ⑤ | 업체 전용 거래명세표(EXCEL) | `part_print_template`는 품목 기준이라 전표(여러 품목)에는 연결 불가 → 용도 기본 양식 또는 발행 시 양식 지정 | 업체별 양식 연결(`customer_print_template` 등)이 필요한지 (§12 #5와 같은 질문) |
 | ⑥ | 거래명세표 행별 세액 | 금액 × 세율 반올림(표시용), 합계 세액은 전표 저장값 — 행 세액 합과 1원 단위로 다를 수 있음 (구 동일) | 행 세액 표시를 유지할지 |
 | ⑦ | 발행 권한 | 지금은 `system.print` 읽기 | 6단계에서 검사·출하 화면 권한으로 옮김 (예정) |
+
+**5단계 기준정보 — 확인이 필요한 사항** (§22)
+
+| # | 항목 | 현재 | 확인 |
+|-|-|-|-|
+| ⑧ | 구 품목의 **공정 16단계별 단가**(`SubPrice1~16`)·단계명(`Subp1~16`) | 구 코드는 저장·표시만 하고 금액 계산에 쓰지 않음 (`F_PartDetailForm` 320~343행, `PartRepository`). 신규 DDL에 없음 | 실제로 쓰는 값인지. 쓰면 `part_process_price`(품목 × 단위공정 × 단가) 추가 후 이관 |
+| ⑨ | 구 품목 **양산 상태**(`MassStatus` — 양산/개발 등) | 구 코드는 표시만. 신규 DDL에 없음 | 필요하면 공통코드 + `part.mass_status` 추가 |
 
 
 ---
@@ -911,3 +919,71 @@ POST /api/print/issue {purposeCode, sourceId, printTemplateId?}
 - 옵션 편집기의 샘플 데이터 미리보기, 옵션 JSON Schema 검증 (§15.3.1).
 - 단말별 프린터·자동 인쇄(`workstation_print_setting`) — 브라우저 인쇄 방식 결정 후.
 
+---
+
+# 22. 기준정보 (5단계)
+
+## 22.1 나눔
+
+| 순서 | 대상 | 방식 |
+|-|-|-|
+| 5-① | 자사 정보(도장), 거래처, 설비 유형, 설비, 단위공정, 조건 항목, 설비 기준시간, 불량 사유, 측정기구, 교대, 공장 달력, 부서, 직위, 사원 + **사용자·역할 권한** | 단순 기준정보 = **정의 기반 범용 API·화면** (§22.2) / 사용자·역할은 전용 |
+| 5-② | 품목 (거래처별 품번, 도면·이미지 첨부, 성적서 양식 연결, 변경 이력) | 전용 화면 |
+| 5-③ | 공정 경로(버전·단위공정 순서), 단계 템플릿(단계·관리항목), 작업표준(항목 × 단계 행렬, 버전, 복사) | 전용 화면 |
+| 5-④ | 검사기준 (품목+업체, 버전, 항목, 측정 위치) | 전용 화면 |
+
+## 22.2 단순 기준정보 — 정의 기반 (5-①)
+
+- 정의: `api/…/Features/Master/MasterCatalog.cs` — 테이블마다 필드(라벨·형식·필수·길이·중복 금지·범위·공통코드·참조·기본값·검색·목록 표시·도움말). **API 검증·SQL·화면 구성의 단일 원천.**
+- API: 정의마다 `/api/master/{key}` 경로를 따로 등록 → 메뉴 권한 `master.{key}`가 엔드포인트에 고정 (fail-closed 검사 대상).
+
+| 메서드·경로 | 권한 |
+|-|-|
+| `GET /api/master/{key}/meta` · `GET /api/master/{key}?search&includeInactive&page` · `GET /api/master/{key}/{id}` | R |
+| `POST /api/master/{key}` / `PUT /api/master/{key}/{id}` (`__reason` = 변경 사유) | C / U |
+| `DELETE /api/master/{key}/{id}` — 공장 달력·설비 기준시간만 (참조 없는 설정성 자료) | D |
+| `GET·PUT·DELETE /api/master/{key}/{id}/image/{name}` — 자사 도장 (PNG·JPG, DB 보관) | R / U |
+| `GET /api/master/{key}/options` — 다른 화면 드롭다운용 id·표시명 | 로그인 |
+
+- 규칙: `is_active`가 있는 테이블은 **삭제 없이 사용 중지** (과거 거래 참조 보존). 수정은 보내온 필드만. 오류는 필드별로 모아 400. 참조 중 삭제 422 `IN_USE`. 모든 변경 `audit_log` (사용 여부 변경 = `STATUS_CHANGE`).
+- CHECK 값의 표시명은 공통코드 `CUSTOMER_TYPE`, `DAY_TYPE`, `CONDITION_VALUE_TYPE` (코드 고정).
+- 정의 ↔ DDL 대조 테스트(`MasterCatalogTests`): 컬럼 존재·형식·길이, NOT NULL ↔ 필수/기본값, 중복 금지 ↔ UNIQUE 인덱스, 참조·공통코드·메뉴 존재. **DDL을 바꾸면 정의도 같이 고쳐야 테스트 통과.**
+- 화면: `web/src/pages/master/MasterPage.tsx` — `master.*` 메뉴는 전용 화면 등록이 없으면 이 화면. 목록(검색·사용 중지 포함·페이지), 행 클릭 → 편집 창(형식별 입력, 공통코드·참조 선택, 변경 사유, 이미지).
+- 새 단순 기준정보 = DDL 테이블 + 메뉴(§9.8) + 정의 1개. 화면·API 코드 추가 없음.
+
+## 22.3 사용자·역할 (5-①)
+
+- `시스템 > 사용자 관리`: 계정 추가(초기 비밀번호 — `auth.password_min_length`), 이름·사원 연결·역할(복수)·사용 여부, 비밀번호 초기화.
+- `시스템 > 역할·권한`: 역할 추가(코드 고정), 메뉴 × 조회/등록/수정/삭제 행렬. 쓰기 권한을 주면 조회도 함께.
+- 변경 즉시 권한 캐시 무효화 → 다음 요청부터 적용, 사용 중지 계정은 기존 세션도 끊김.
+- 잠금 방지: 자기 계정 사용 중지·자기 역할 변경 불가 (`SELF_LOCKOUT`), 관리자 역할(`Bootstrap:AdminRoleCode`)의 권한·사용 여부 변경 불가 (`ADMIN_ROLE_LOCKED`).
+
+## 22.4 품목 (5-②)
+
+- API `/api/parts` (권한 `master.part`), 화면 `기준정보 > 품목` (`web/src/pages/master/PartsPage.tsx`).
+- 저장 1회 = 품목 + 거래처별 품번(`part_customer`: 고객 품번, 고객 LOT 필수, 주 거래처 1개) + 적용 공정(`part_heat_process`: 기본 1개). 목록에서 빠진 거래처·공정은 **사용 중지**(수주·검사 참조 보존).
+- 품번 중복: 구 화면은 무조건 거부 → 신규는 422 `DUPLICATE_PART_NUMBER` 후 **확인하면 저장** (`allowDuplicatePartNumber`). 품목 코드는 UNIQUE.
+- 변경마다 `part_history`(전·후 스냅샷, 이력 탭에서 바뀐 항목만 비교) + `audit_log`.
+- 도면·이미지: 공통 첨부 `attachment` (owner `part`, 종류 = 공통코드 `ATTACHMENT_KIND` 중 속성 owner=part), DB 보관, 크기 `file.max_attachment_mb`, SHA-256 해시. 구 PC 폴더(`PartDrawingFolder`, `PartImageFolder`) 폐지.
+- 성적서 양식 연결(`part_print_template`): 품목 + 거래처(또는 모든 거래처) × 양식, 거래처·용도당 기본 1개 → 출력 양식 선택 1·2순위 (§21.1).
+- 공정(열처리) **즉석 등록 없음** — 구 화면은 이름 입력 시 공정·단위공정 자동 등록 (오타로 늘어나는 문제, 구 T4). 공정은 5-③ 화면에서만.
+
+## 22.5 공정 경로 · 단계 템플릿 · 작업표준 (5-③)
+
+| 화면 (권한) | API | 규칙 |
+|-|-|-|
+| 공정 경로 (`master.heat_process`) | `/api/heat-processes` (`PUT …/route` = 경로 저장) | 경로 = 단위공정 순서 + 주공정(최대 1) + 필수 여부. **현재 Version을 수주 품목·작업 LOT이 쓰면 새 Version**, 아니면 현재 Version 수정. 목록에 경로 요약(`세척 > 침탄* > 템퍼링`) |
+| 단계 템플릿 (`master.step_template`) | `/api/step-templates` | 단위공정 × 설비유형(또는 설비) × 단계(열) × 관리항목(행). 단계는 **id 유지한 채 이름·순서 변경**(임시 순번 → 재부여, 한 트랜잭션). 작업표준·작업 조건이 쓰는 단계는 삭제 불가(`STEP_IN_USE`). 표준이 쓰는 템플릿은 단위공정 변경 불가 |
+| 작업표준 (`master.standard`) | `/api/standards` (`POST …/versions` = 새 Version) | 키 = 품목 × 단위공정 × 설비유형/설비 × 거래처 × 공정, 같은 키는 1개(`DUPLICATE_STANDARD` + 기존 id). 코드 = 설정 `standard.code_format`. **저장할 때마다 새 Version** (구 "새 행 INSERT" 방식 유지). 조건 = 관리항목 × [공통 + 단계] 행렬, 숫자 항목 검증, 빈 칸은 저장 안 함. 다른 품목 표준에서 복사, 과거 Version 보기 |
+
+- **Version 시작 시각:** DB DATETIME은 소수초를 버리므로 같은 초에 연달아 저장하면 이전 종료 = 이전 시작이 되어 CHECK(`effective_to > effective_from`)에 걸린다 → 시작 = max(현재 초, 이전 시작 + 1초) (`VersionClock`, 테스트에서 발견).
+- 검증을 먼저, 이전 Version 종료는 나중 (잘못된 입력이 이전 Version을 닫지 않게).
+- 템플릿에 없는데 값이 있는 관리항목(템플릿 변경·이관 자료)도 행렬에 "템플릿 외"로 표시해 값이 사라지지 않게 한다.
+
+## 22.6 검사기준 (5-④)
+
+- 화면 `기준정보 > 검사기준` (`master.inspection_standard`), API `/api/inspection-standards`.
+- 헤더 = 품목 + 거래처(비우면 공통), 같은 조합 1개(`DUPLICATE_INSPECTION_STANDARD`). Version 규칙은 공정 경로와 같음 (검사가 쓴 Version → 새 Version).
+- 항목: 유형(공통코드 `INSPECTION_ITEM_TYPE` → 성적서 T/C 좌표 키 접두어), 항목·위치·요구사항(성적서 표기)·측정기·시험값·스케일·단위, **판정 방식**(공통코드 `RANGE_TYPE`: 범위/하한 이상/상한 이하/기록만 — 속성으로 하한·상한 필요 여부), 하한·상한, 시료수·시험수, 측정 위치 목록(구 P1~P10 → 개수 제한 없음 행).
+- 검증은 행별 오류를 모아 400 (하한·상한 필요, 하한 > 상한, 시료수 ≥ 1 …).
+- **이관 주의 (8단계):** 구 `t_inspectioncriteria.itemtype`은 `"0"~"5"` 또는 이름 — `INSPECTION_ITEM_TYPE` 코드로 변환해야 한다. 변환 안 된 값은 화면에서 붉게 "'경도' → 다시 선택"으로 표시되고 저장 시 거부된다.

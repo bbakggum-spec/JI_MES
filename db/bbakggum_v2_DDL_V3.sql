@@ -2037,10 +2037,12 @@ INSERT INTO system_setting (setting_key, category, setting_name, value_type, def
  ('print.max_template_file_mb',       '출력',   '양식 파일 최대 크기',               'INT',     '10',    1, 100, 'MB', 'DB max_allowed_packet 이하로 설정', 0, 30),
  ('print.keep_issued_output',         '출력',   '발행본 PDF 보관 용도',              'JSON',    '["INSPECTION_REPORT"]', NULL, NULL, NULL, 'print_log.output_content 저장 대상 용도 코드', 0, 40),
  ('file.storage_root',                '파일',   '첨부 파일 저장 위치 (서버)',        'PATH',    'D:\\MES\\Files', NULL, NULL, NULL, '조직사진·경화층 차트 등 — 구 BaseDirectory\\Files 하위 (PC별)', 1, 10),
+ ('file.max_attachment_mb',           '파일',   '첨부 파일 최대 크기',               'INT',     '20',    1, 200, 'MB', '도면·이미지 등 attachment 1건 — DB max_allowed_packet 이하', 0, 20),
  ('log.retention_days',               '시스템', '로그 보관 일수',                    'INT',     '7',     1, 365, '일', '구 AppLogger 7일', 1, 10),
  ('work.complete_time_round_min',     '생산',   '완료시각 단위 (내림)',              'INT',     '5',     1, 60, '분', '구 RoundToNearest5Minutes (실제 동작은 내림)', 0, 10),
  ('sales_order.item_number_format',   '영업',   '입고(수주)번호 형식',               'STRING',  'I{yyMMdd}-{SEQ:000}', NULL, NULL, NULL, '구 IncomeAddService', 0, 30),
  ('shipment.number_format',           '영업',   '출하 전표번호 형식',                'STRING',  'O{yyMMdd}-{SEQ:000}', NULL, NULL, NULL, '구 OutcomeAddService', 0, 40),
+ ('standard.code_format',             '생산',   '작업표준 코드 형식',                'STRING',  'STD-{PART}-{UNIT}-{SEQ:00}', NULL, NULL, NULL, '치환: {PART} 품목 코드, {UNIT} 단위공정 코드, {SEQ:00} 같은 품목·공정 순번', 0, 20),
  ('inspection.number_format',         '품질',   '검사번호 형식',                     'STRING',  '{TYPE}{yyMMdd}-{SEQ:000}', NULL, NULL, NULL, '{TYPE} = 공통코드 INSPECTION_TYPE attr prefix (TI/TP/TO)', 0, 10),
  ('auth.session_timeout_min',         '시스템', '로그인 세션 유지 시간',             'INT',     '480',   5, 1440, '분', '신규 — 요청이 있으면 연장 (sliding)', 0, 20),
  ('auth.permission_cache_sec',        '시스템', '권한 캐시 유지 시간',               'INT',     '60',    0, 3600, '초', '신규 — 역할·메뉴 권한 변경이 반영되기까지 최대 시간 (API에서 변경 시 즉시 반영)', 0, 30),
@@ -2058,7 +2060,12 @@ INSERT INTO common_code_group (group_code, group_name, description) VALUES
  ('CLOSING_STATUS',      '마감 상태',     '구 ClosingStatus enum (미마감/마감완료/이월)'),
  ('PRICE_BASIS',         '단가 적용 구분', '구 t_part.unit (ea/kg/ch)'),
  ('SCHEDULE_STATUS',     '계획 상태',     '계획 블록 PLANNED/CONFIRMED/RELEASED/CANCELLED (설계 §4)'),
- ('RUNNING_TIME_SOURCE', '작업시간 출처', '스케줄 작업시간 결정 5단계 (설계 §7)');
+ ('RUNNING_TIME_SOURCE', '작업시간 출처', '스케줄 작업시간 결정 5단계 (설계 §7)'),
+ ('CUSTOMER_TYPE',       '거래처 구분',   'customer.customer_type CHECK 값'),
+ ('DAY_TYPE',            '달력 일 구분',  'work_calendar.day_type CHECK 값'),
+ ('CONDITION_VALUE_TYPE','조건값 형식',   'condition_item.value_type CHECK 값'),
+ ('ATTACHMENT_KIND',     '첨부 종류',     'attachment.attachment_kind — 구 PC 로컬 폴더(PartDrawingFolder 등) 대체'),
+ ('RANGE_TYPE',          '판정 방식',     'inspection_criteria.range_type — 측정값 자동 판정 기준');
 
 INSERT INTO common_code (common_code_group_id, code, code_name, sort_order, attr_json, is_system)
 SELECT g.common_code_group_id, v.code, v.name, v.ord, v.attr, 1
@@ -2101,7 +2108,25 @@ SELECT g.common_code_group_id, v.code, v.name, v.ord, v.attr, 1
         UNION ALL SELECT 'RUNNING_TIME_SOURCE', 'PREVIOUS_WORK', '직전 작업', 2, NULL
         UNION ALL SELECT 'RUNNING_TIME_SOURCE', 'DEFAULT_TIME', '설비 기준시간', 3, NULL
         UNION ALL SELECT 'RUNNING_TIME_SOURCE', 'USER_INPUT', '사용자 입력', 4, NULL
-        UNION ALL SELECT 'RUNNING_TIME_SOURCE', 'SETTING', '기본 설정값', 5, NULL) v
+        UNION ALL SELECT 'RUNNING_TIME_SOURCE', 'SETTING', '기본 설정값', 5, NULL
+        UNION ALL SELECT 'CUSTOMER_TYPE', 'SALES', '매출처', 1, NULL
+        UNION ALL SELECT 'CUSTOMER_TYPE', 'PURCHASE', '매입처', 2, NULL
+        UNION ALL SELECT 'CUSTOMER_TYPE', 'BOTH', '매출·매입', 3, NULL
+        UNION ALL SELECT 'DAY_TYPE', 'WORKDAY', '근무일', 1, NULL
+        UNION ALL SELECT 'DAY_TYPE', 'HOLIDAY', '휴일', 2, '{"color":"#E53935"}'
+        UNION ALL SELECT 'DAY_TYPE', 'SPECIAL', '특근', 3, '{"color":"#1677FF"}'
+        UNION ALL SELECT 'CONDITION_VALUE_TYPE', 'NUMBER', '숫자', 1, NULL
+        UNION ALL SELECT 'CONDITION_VALUE_TYPE', 'TEXT', '문자', 2, NULL
+        UNION ALL SELECT 'ATTACHMENT_KIND', 'PART_DRAWING', '도면', 1, '{"owner":"part"}'
+        UNION ALL SELECT 'ATTACHMENT_KIND', 'PART_IMAGE', '품목 이미지', 2, '{"owner":"part","image":true}'
+        UNION ALL SELECT 'ATTACHMENT_KIND', 'STRUCTURE_PHOTO', '조직사진', 3, '{"owner":"inspection","image":true}'
+        UNION ALL SELECT 'ATTACHMENT_KIND', 'HARDNESS_CHART', '경화층 차트', 4, '{"owner":"inspection","image":true}'
+        UNION ALL SELECT 'ATTACHMENT_KIND', 'EQUIPMENT_IMAGE', '설비 이미지', 5, '{"owner":"equipment","image":true}'
+        UNION ALL SELECT 'ATTACHMENT_KIND', 'ETC', '기타', 9, NULL
+        UNION ALL SELECT 'RANGE_TYPE', 'BETWEEN', '범위 (하한~상한)', 1, '{"lower":true,"upper":true}'
+        UNION ALL SELECT 'RANGE_TYPE', 'MIN', '하한 이상', 2, '{"lower":true}'
+        UNION ALL SELECT 'RANGE_TYPE', 'MAX', '상한 이하', 3, '{"upper":true}'
+        UNION ALL SELECT 'RANGE_TYPE', 'NONE', '기록만 (판정 없음)', 4, NULL) v
   JOIN common_code_group g ON g.group_code = v.grp;
 
 -- =====================================================================
@@ -2149,7 +2174,27 @@ INSERT INTO menu (menu_key, menu_name, parent_menu_id, route, sort_order) VALUES
 
 INSERT INTO menu (menu_key, menu_name, parent_menu_id, route, sort_order)
 SELECT v.k, v.n, p.menu_id, v.r, v.o
-  FROM (SELECT 'production.schedule' k, '생산계획' n, 'production' parent, '/production/schedule' r, 10 o        UNION ALL SELECT 'system.user', '사용자 관리', 'system', '/system/users', 10
+  FROM (SELECT 'production.schedule' k, '생산계획' n, 'production' parent, '/production/schedule' r, 10 o
+        UNION ALL SELECT 'master.company',          '자사 정보',     'master', '/master/company', 10
+        UNION ALL SELECT 'master.customer',         '거래처',        'master', '/master/customer', 20
+        UNION ALL SELECT 'master.part',             '품목',          'master', '/master/part', 25
+        UNION ALL SELECT 'master.equipment_type',   '설비 유형',     'master', '/master/equipment-type', 30
+        UNION ALL SELECT 'master.equipment',        '설비',          'master', '/master/equipment', 40
+        UNION ALL SELECT 'master.unit_process',     '단위공정',      'master', '/master/unit-process', 50
+        UNION ALL SELECT 'master.heat_process',     '공정 경로',     'master', '/master/heat-process', 55
+        UNION ALL SELECT 'master.condition_item',   '조건 항목',     'master', '/master/condition-item', 60
+        UNION ALL SELECT 'master.step_template',    '단계 템플릿',   'master', '/master/step-template', 62
+        UNION ALL SELECT 'master.standard',         '작업표준',      'master', '/master/standard', 65
+        UNION ALL SELECT 'master.inspection_standard', '검사기준',   'master', '/master/inspection-standard', 67
+        UNION ALL SELECT 'master.process_default_time', '설비 기준시간', 'master', '/master/process-default-time', 70
+        UNION ALL SELECT 'master.defect_reason',    '불량 사유',     'master', '/master/defect-reason', 80
+        UNION ALL SELECT 'master.instrument',       '측정기구',      'master', '/master/instrument', 90
+        UNION ALL SELECT 'master.work_shift',       '교대',          'master', '/master/work-shift', 100
+        UNION ALL SELECT 'master.work_calendar',    '공장 달력',     'master', '/master/work-calendar', 110
+        UNION ALL SELECT 'master.department',       '부서',          'master', '/master/department', 120
+        UNION ALL SELECT 'master.job_position',     '직위',          'master', '/master/job-position', 130
+        UNION ALL SELECT 'master.employee',         '사원',          'master', '/master/employee', 140
+        UNION ALL SELECT 'system.user', '사용자 관리', 'system', '/system/users', 10
         UNION ALL SELECT 'system.role',    '역할·권한',   'system', '/system/roles',      20
         UNION ALL SELECT 'system.setting', '관리자 설정', 'system', '/system/settings',   30
         UNION ALL SELECT 'system.code',    '공통코드',    'system', '/system/codes',      40

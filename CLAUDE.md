@@ -6,7 +6,7 @@
 
 | 경로 | 내용 |
 |-|-|
-| `docs/bbakggum_신규 설계안_V3.md` | **설계 기준 문서** (V3.12). 업무 규칙·테이블·주의사항의 근거 |
+| `docs/bbakggum_신규 설계안_V3.md` | **설계 기준 문서** (V3.13). 업무 규칙·테이블·주의사항의 근거 |
 | `db/bbakggum_v2_DDL_V3.sql` | **DDL 단일 원본** (77 테이블 + 5 VIEW + 초기 데이터). 스키마 변경은 여기만 수정 |
 | `db/test/smoke_scenario.sql` | 업무 흐름 스모크 시나리오 (DDL 변경 후 반드시 실행) |
 | `db/dev/dev-db.ps1` | 개발 DB 관리 (3307 포트, 로컬 전용). `seed_dev.sql` = 화면 확인용 개발 데이터 |
@@ -16,7 +16,7 @@
 | `web/` | React 19 + TypeScript + Vite + **Ant Design 6** + TanStack Query. 구조·규칙은 설계 §19 |
 | `D:\Programming\ProductManager` | **기존 WinForms 소스 — 읽기 전용.** 업무 규칙 확인용. 수정 금지 |
 
-설계 문서는 크므로 **필요한 절만 읽는다** (예: 스케줄 작업 → §4·§7·§15.1·§20, 출력 → §5.3·§15.2~15.3·§21, 설정 → §15.4).
+설계 문서는 크므로 **필요한 절만 읽는다** (예: 스케줄 작업 → §4·§7·§15.1·§20, 출력 → §5.3·§15.2~15.3·§21, 기준정보 → §22, 설정 → §15.4).
 
 ## 명령
 
@@ -38,7 +38,7 @@ npm run lint --prefix web
 ```
 
 - API 접속 정보·최초 관리자 비밀번호(개발용)는 `api/src/JiMes.Api/Properties/launchSettings.json` 환경변수. 운영은 환경변수 `ConnectionStrings__Main`, `Bootstrap__AdminPassword`
-- 새 API 엔드포인트는 `RequirePermission(MenuKeys.x, …)` / `RequireLogin()` / `AllowAnonymous()` 중 하나를 반드시 선언 (누락 시 테스트 실패). 새 메뉴는 DDL §9.8, 새 설정은 DDL §9.6 + `SettingKeys`. 새 화면은 메뉴(DDL §9.8) → `web/src/pages/registry.tsx` 등록, 버튼은 `useCan`
+- 새 API 엔드포인트는 `RequirePermission(MenuKeys.x, …)` / `RequireLogin()` / `AllowAnonymous()` 중 하나를 반드시 선언 (누락 시 테스트 실패). 새 메뉴는 DDL §9.8, 새 설정은 DDL §9.6 + `SettingKeys`. 새 화면은 메뉴(DDL §9.8) → `web/src/pages/registry.ts` 등록, 버튼은 `useCan`. 단순 기준정보는 `MasterCatalog.cs` 정의 1개 + 메뉴만 (화면·API 자동, 정의 ↔ DDL 테스트)
 
 - 출력: PDF 변환은 서버 LibreOffice(`print.pdf_converter_path`), 고정 양식 글꼴은 설치 이름("굴림체", "맑은 고딕") — 개발 PC에 둘 다 설치되어 있어야 출력 테스트가 돈다 (LibreOffice 없으면 해당 테스트 건너뜀)
 - Dapper 조회 행은 **속성 클래스**로 받는다 (BIGINT UNSIGNED id 를 레코드·튜플 생성자로는 매핑 못 함)
@@ -79,7 +79,7 @@ npm run lint --prefix web
 | 2 | API 골격 (인증·권한·감사·설정 캐시·row_version·SignalR) | **완료 (2026-09-30)** — 설계 V3.9 §18, 테스트 49건. 사용자·역할 관리 API는 5단계 |
 | 3 | 웹 골격 (Ant Design 레이아웃·로그인·권한 메뉴·대시보드 틀) | **완료 (2026-09-30)** — 설계 V3.10 §19. 시스템 화면 3종(설정·공통코드·변경 이력) 포함 |
 | 4 | 고난도 프로토타입: ① 스케줄 서비스 + Gantt (구 SP 결과 비교) ② 출력 엔진 (EXCEL 성적서 + FIXED 거래명세표) | **완료 (2026-09-30)** — ① 설계 §20 ② 설계 §21, §12 확인 7건(①~⑦). API 테스트 100건 |
-| 5 | 기준정보 화면 | 대기 |
+| 5 | 기준정보 화면 | **완료 (2026-09-30)** — 설계 V3.13 §22 (범용 14종 + 사용자·역할 + 품목 + 공정·템플릿·작업표준 + 검사기준), §12 확인 ⑧⑨. API 테스트 121건 |
 | 6 | 업무: 수주 → 계획 → 투입 → 검사·성적서 → 부적합·재작업 → 출하·마감 | 대기 |
 | 7 | 조회·대시보드 (LOT 현황, 추적, KPI) | 대기 |
 | 8 | 구 DB 이관 스크립트·검증·병행운영 | 대기 |

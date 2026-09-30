@@ -10,6 +10,11 @@ namespace JiMes.Api.Infrastructure.Security;
 public static class MenuKeys
 {
     public const string ProductionSchedule = "production.schedule";
+    public const string MasterPart = "master.part";
+    public const string MasterHeatProcess = "master.heat_process";
+    public const string MasterStepTemplate = "master.step_template";
+    public const string MasterStandard = "master.standard";
+    public const string MasterInspectionStandard = "master.inspection_standard";
 
     public const string SystemUser = "system.user";
     public const string SystemRole = "system.role";

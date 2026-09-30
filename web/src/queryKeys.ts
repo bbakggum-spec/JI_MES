@@ -8,4 +8,6 @@ export const queryKeys = {
   health: ['health'] as const,
   schedule: ['schedule'] as const,
   print: ['print'] as const,
+  master: ['master'] as const,
+  admin: ['admin'] as const,
 }
