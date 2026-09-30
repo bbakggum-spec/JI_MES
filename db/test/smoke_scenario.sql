@@ -18,7 +18,11 @@ INSERT INTO standard(standard_code,standard_name,part_id,heat_process_id,unit_pr
  ('STD-P1-CARB','기어A 침탄',1,1,2,2),('STD-P2-CARB','샤프트B 침탄',2,1,2,2);
 INSERT INTO standard_version(standard_id,version_no,step_template_id,charge_qty,running_time_min,effective_from,is_current) VALUES
  (1,1,1,1200,480,'2026-01-01',1),(2,1,1,1000,420,'2026-01-01',1);
-INSERT INTO standard_condition(standard_version_id,step_template_item_id,condition_item_id,condition_value) VALUES
+-- 입력표 = Version 별 스텝(열)·관리항목(행) — 템플릿에서 불러온 뒤 표준마다 따로 보관
+INSERT INTO standard_version_step(standard_version_id,sequence_no,step_name)
+ SELECT v.standard_version_id, i.sequence_no, i.step_name FROM standard_version v JOIN step_template_item i ON i.step_template_id = v.step_template_id;
+INSERT INTO standard_version_item(standard_version_id,sequence_no,condition_item_id) VALUES (1,1,1),(1,2,2),(1,3,3),(2,1,1),(2,2,2),(2,3,3);
+INSERT INTO standard_condition(standard_version_id,step_no,condition_item_id,condition_value) VALUES
  (1,3,1,'920'),(1,3,2,'180'),(1,3,3,'1.10'),(1,4,1,'920'),(1,4,2,'60'),(1,4,3,'0.85'),
  (2,3,1,'930'),(2,3,2,'150'),(2,3,3,'1.05');
 -- 검사기준 / 성적서 양식
@@ -56,8 +60,8 @@ INSERT INTO production_work_input(production_work_id,sales_order_item_id,main_wo
  (4,1,2,4,NULL,0,570),(4,2,2,5,NULL,0,600),(4,1,3,6,NULL,0,400),(4,3,3,7,NULL,0,390),
  (5,1,5,NULL,2,1,30),(5,3,5,NULL,3,0,10);
 -- 확정 조건 (기어A 표준 선택 → 복사, 확산 CP 수정)
-INSERT INTO production_work_condition(production_work_id,step_template_item_id,condition_item_id,step_sequence_no,step_name_snapshot,set_value) VALUES
- (2,3,1,3,'침탄','920'),(2,3,2,3,'침탄','180'),(2,3,3,3,'침탄','1.10'),(2,4,1,4,'확산','920'),(2,4,2,4,'확산','60'),(2,4,3,4,'확산','0.80');
+INSERT INTO production_work_condition(production_work_id,condition_item_id,step_sequence_no,step_name_snapshot,set_value) VALUES
+ (2,1,3,'침탄','920'),(2,2,3,'침탄','180'),(2,3,3,'침탄','1.10'),(2,1,4,'확산','920'),(2,2,4,'확산','60'),(2,3,4,'확산','0.80');
 -- 주 LOT B01에 수주 2건 추가 투입 → 투입 대상 4개 (input id 14, 15)
 INSERT INTO sales_order(sales_order_no,order_date,customer_id) VALUES ('SO-0930-03','2026-09-30',1);
 INSERT INTO sales_order_item(order_item_no,sales_order_id,line_no,part_id,order_qty) VALUES ('I260930-004',3,1,1,100),('I260930-005',3,2,2,100);

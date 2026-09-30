@@ -1,14 +1,16 @@
 import { DeleteOutlined, DownloadOutlined, MinusCircleOutlined, PlusOutlined, UploadOutlined } from '@ant-design/icons'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  App, Button, Checkbox, Col, Drawer, Empty, Form, Image, Input, InputNumber, Popconfirm, Radio, Row, Select, Space, Switch,
+  App, Button, Checkbox, Col, Empty, Form, Image, Input, InputNumber, Popconfirm, Radio, Row, Select, Space, Switch,
   Table, Tabs, Tag, Typography, Upload,
 } from 'antd'
+import EditorWindow from '../../components/EditorWindow'
 import dayjs from 'dayjs'
 import { useState } from 'react'
 import { ApiError, api, apiFile, fieldErrors, saveFile } from '../../api/client'
 import { useCan } from '../../auth/useAuth'
 import { useCommonCodes } from '../../hooks/useCommonCodes'
+import { useDataVersion } from '../../hooks/useDataVersion'
 import { queryKeys } from '../../queryKeys'
 import type { PageProps } from '../registry'
 
@@ -114,7 +116,7 @@ export default function PartsPage({ menuKey }: PageProps) {
           { title: '첨부', dataIndex: 'attachmentCount', width: 60, align: 'right', render: (n: number) => (n > 0 ? n : null) },
         ]} />
       {editing !== null && (
-        <PartDrawer partId={editing === 'new' ? null : editing} lookups={lookups.data} canEdit={editing === 'new' ? canCreate : canUpdate}
+        <PartWindow partId={editing === 'new' ? null : editing} lookups={lookups.data} canEdit={editing === 'new' ? canCreate : canUpdate}
           onClose={() => setEditing(null)}
           onSaved={(id) => { setEditing(id); void queryClient.invalidateQueries({ queryKey: key }) }} />
       )}
@@ -128,7 +130,7 @@ type PartForm = Omit<Part, 'partId' | 'customerNames' | 'defaultHeatProcessName'
   reason?: string
 }
 
-function PartDrawer({ partId, lookups, canEdit, onClose, onSaved }: {
+function PartWindow({ partId, lookups, canEdit, onClose, onSaved }: {
   partId: number | null; lookups: Lookups | undefined; canEdit: boolean; onClose: () => void; onSaved: (id: number) => void
 }) {
   const isNew = partId === null
@@ -137,19 +139,20 @@ function PartDrawer({ partId, lookups, canEdit, onClose, onSaved }: {
     queryFn: ({ signal }) => api<PartDetail>(`/api/parts/${partId}`, { signal }),
     enabled: !isNew,
   })
+  const dataVersion = useDataVersion(detail.data)
   const title = isNew ? '품목 추가' : detail.data ? `${detail.data.part.partName} (${detail.data.part.partCode})` : '품목'
 
   return (
-    <Drawer open onClose={onClose} size="large" title={title} destroyOnHidden>
+    <EditorWindow onClose={onClose} size="large" title={title} destroyOnHidden>
       {isNew ? <PartForm lookups={lookups} canEdit={canEdit} onSaved={onSaved} /> : detail.data && (
         <Tabs items={[
-          { key: 'info', label: '기본 정보', children: <PartForm key={detail.dataUpdatedAt} detail={detail.data} lookups={lookups} canEdit={canEdit} onSaved={() => { void detail.refetch(); onSaved(partId) }} /> },
+          { key: 'info', label: '기본 정보', children: <PartForm key={dataVersion} detail={detail.data} lookups={lookups} canEdit={canEdit} onSaved={() => { void detail.refetch(); onSaved(partId) }} /> },
           { key: 'files', label: `도면·이미지 (${detail.data.attachments.length})`, children: <Attachments partId={partId} detail={detail.data} canEdit={canEdit} onChanged={() => void detail.refetch()} /> },
           { key: 'templates', label: '성적서 양식', children: <TemplateLinks partId={partId} detail={detail.data} lookups={lookups} canEdit={canEdit} onSaved={() => void detail.refetch()} /> },
           { key: 'history', label: '변경 이력', children: <History partId={partId} /> },
         ]} />
       )}
-    </Drawer>
+    </EditorWindow>
   )
 }
 

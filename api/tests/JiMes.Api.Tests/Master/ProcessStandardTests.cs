@@ -80,7 +80,7 @@ public sealed class ProcessStandardTests(ApiFixture fx) : IAsyncLifetime
         var res = await Ok(await _client.PostAsJsonAsync("/api/step-templates", new
         {
             stepTemplateCode = $"ST-{Tag()}", stepTemplateName = "가스 침탄", unitProcessId = _carb, equipmentTypeId = _gasType, isActive = true,
-            steps = new[] { new { stepName = "승온" }, new { stepName = "침탄" }, new { stepName = "확산" } },
+            steps = new[] { "승온", "침탄", "확산" },
             conditionItemIds = new[] { _tempCi, _timeCi },
         }));
         var id = res.GetProperty("stepTemplateId").GetInt64();
@@ -88,22 +88,25 @@ public sealed class ProcessStandardTests(ApiFixture fx) : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Standard_versions_matrix_and_template_step_protection()
+    public async Task Standard_owns_variable_steps_and_items_per_version()
     {
         var (templateId, template) = await CreateTemplateAsync();
-        var steps = template.GetProperty("steps").EnumerateArray().Select(s => s.GetProperty("stepTemplateItemId").GetInt64()).ToArray();
+        Assert.Equal(["승온", "침탄", "확산"], template.GetProperty("steps").EnumerateArray().Select(s => s.GetProperty("stepName").GetString()));
 
+        // 템플릿에서 불러온 뒤 스텝 추가 (구 가변 그리드) — 조건은 (스텝 순서, 항목)
         var created = await Ok(await _client.PostAsJsonAsync("/api/standards", new
         {
             partId = _part, unitProcessId = _carb, equipmentTypeId = _gasType,
             version = new
             {
                 stepTemplateId = templateId, chargeQty = 400, runningTimeMin = 420,
+                steps = new[] { "승온", "침탄", "확산", "강온" }, items = new[] { _tempCi, _timeCi },
                 conditions = new object[]
                 {
-                    new { stepTemplateItemId = steps[1], conditionItemId = _tempCi, conditionValue = "920" },
-                    new { stepTemplateItemId = (long?)null, conditionItemId = _timeCi, conditionValue = "공통 메모" },   // 단계 무관 (LOT 공통)
-                    new { stepTemplateItemId = steps[2], conditionItemId = _tempCi, conditionValue = "" },               // 빈 값은 저장 안 함
+                    new { stepNo = 2, conditionItemId = _tempCi, conditionValue = "920" },
+                    new { stepNo = 4, conditionItemId = _tempCi, conditionValue = "850" },
+                    new { stepNo = (int?)null, conditionItemId = _timeCi, conditionValue = "공통 메모" },   // 단계 무관 (LOT 공통)
+                    new { stepNo = 3, conditionItemId = _tempCi, conditionValue = "" },                    // 빈 값은 저장 안 함
                 },
             },
         }));
@@ -114,52 +117,47 @@ public sealed class ProcessStandardTests(ApiFixture fx) : IAsyncLifetime
         var dupBody = await dup.Content.ReadFromJsonAsync<JsonElement>();
         Assert.Equal(("DUPLICATE_STANDARD", standardId), (dupBody.GetProperty("code").GetString(), dupBody.GetProperty("standardId").GetInt64()));
 
-        var badNumber = await _client.PostAsJsonAsync($"/api/standards/{standardId}/versions", new
-        {
-            stepTemplateId = templateId, chargeQty = 400, runningTimeMin = 420,
-            conditions = new[] { new { stepTemplateItemId = (long?)steps[0], conditionItemId = _tempCi, conditionValue = "구백" } },
-        });
-        Assert.Equal(HttpStatusCode.BadRequest, badNumber.StatusCode);
+        // 숫자 항목에 문자 / 없는 스텝 / 행에 없는 항목 → 거부
+        foreach (var bad in new object[]
+                 {
+                     new { chargeQty = 1, steps = new[] { "승온" }, items = new[] { _tempCi }, conditions = new[] { new { stepNo = 1, conditionItemId = _tempCi, conditionValue = "구백" } } },
+                     new { chargeQty = 1, steps = new[] { "승온" }, items = new[] { _tempCi }, conditions = new[] { new { stepNo = 2, conditionItemId = _tempCi, conditionValue = "900" } } },
+                     new { chargeQty = 1, steps = new[] { "승온" }, items = new[] { _tempCi }, conditions = new[] { new { stepNo = 1, conditionItemId = _timeCi, conditionValue = "x" } } },
+                     new { chargeQty = 1, steps = new[] { " " }, items = new[] { _tempCi } },
+                 })
+            Assert.Equal(HttpStatusCode.BadRequest, (await _client.PostAsJsonAsync($"/api/standards/{standardId}/versions", bad)).StatusCode);
 
+        // v2: 템플릿 없이 스텝 이름·순서·항목 순서를 바꾼다
         var v2 = await Ok(await _client.PostAsJsonAsync($"/api/standards/{standardId}/versions", new
         {
-            stepTemplateId = templateId, chargeQty = 500, runningTimeMin = 400, remark = "charge 증가",
-            conditions = new[] { new { stepTemplateItemId = (long?)steps[1], conditionItemId = _tempCi, conditionValue = "930" } },
+            chargeQty = 500, runningTimeMin = 400, remark = "스텝 변경",
+            steps = new[] { "침탄(고온)", "소입" }, items = new[] { _timeCi, _tempCi },
+            conditions = new[] { new { stepNo = (int?)1, conditionItemId = _tempCi, conditionValue = "930" } },
         }));
         Assert.Equal(2, v2.GetProperty("versionNo").GetInt32());
 
         var detail = await _client.GetFromJsonAsync<JsonElement>($"/api/standards/{standardId}");
         Assert.Equal(2, detail.GetProperty("version").GetProperty("versionNo").GetInt32());
-        Assert.Equal("930", detail.GetProperty("conditions")[0].GetProperty("conditionValue").GetString());
+        Assert.Equal(["침탄(고온)", "소입"], detail.GetProperty("steps").EnumerateArray().Select(s => s.GetProperty("stepName").GetString()));
+        Assert.Equal([_timeCi, _tempCi], detail.GetProperty("items").EnumerateArray().Select(s => s.GetProperty("conditionItemId").GetInt64()));
+        Assert.Equal(("930", 1), (detail.GetProperty("conditions")[0].GetProperty("conditionValue").GetString(), detail.GetProperty("conditions")[0].GetProperty("stepNo").GetInt32()));
+
+        // 과거 버전 보존 — 스텝 4개, 값 3개
         var v1Id = detail.GetProperty("versions").EnumerateArray().Single(v => v.GetProperty("versionNo").GetInt32() == 1).GetProperty("standardVersionId").GetInt64();
         var v1 = await _client.GetFromJsonAsync<JsonElement>($"/api/standards/{standardId}?versionId={v1Id}");
-        Assert.Equal(2, v1.GetProperty("conditions").GetArrayLength());   // 과거 버전 보존
+        Assert.Equal((4, 3), (v1.GetProperty("steps").GetArrayLength(), v1.GetProperty("conditions").GetArrayLength()));
 
-        // 표준이 쓰는 단계는 삭제 불가, 이름·순서 변경은 가능 (id 유지)
-        var removeUsed = await _client.PutAsJsonAsync($"/api/step-templates/{templateId}", new
-        {
-            stepTemplateCode = template.GetProperty("header").GetProperty("stepTemplateCode").GetString(), stepTemplateName = "가스 침탄",
-            unitProcessId = _carb, equipmentTypeId = _gasType, isActive = true,
-            steps = new[] { new { stepTemplateItemId = (long?)steps[0], stepName = "승온" }, new { stepTemplateItemId = (long?)steps[2], stepName = "확산" } },
-            conditionItemIds = new[] { _tempCi },
-        });
-        Assert.Equal("STEP_IN_USE", (await removeUsed.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
-
+        // 템플릿은 초기값 — 스텝을 지우고 바꿔도 기존 표준은 그대로
         await Ok(await _client.PutAsJsonAsync($"/api/step-templates/{templateId}", new
         {
             stepTemplateCode = template.GetProperty("header").GetProperty("stepTemplateCode").GetString(), stepTemplateName = "가스 침탄",
             unitProcessId = _carb, equipmentTypeId = _gasType, isActive = true,
-            steps = new object[]
-            {
-                new { stepTemplateItemId = (long?)steps[1], stepName = "침탄(고온)" },   // 순서 앞으로 + 이름 변경
-                new { stepTemplateItemId = (long?)steps[0], stepName = "승온" },
-                new { stepTemplateItemId = (long?)null, stepName = "강온" },           // 새 단계
-            },
-            conditionItemIds = new[] { _tempCi },
+            steps = new[] { "침탄" }, conditionItemIds = new[] { _tempCi },
         }));
         var after = await _client.GetFromJsonAsync<JsonElement>($"/api/step-templates/{templateId}");
-        Assert.Equal(["침탄(고온)", "승온", "강온"], after.GetProperty("steps").EnumerateArray().Select(s => s.GetProperty("stepName").GetString()));
-        Assert.Equal(steps[1], after.GetProperty("steps")[0].GetProperty("stepTemplateItemId").GetInt64());
+        Assert.Equal(["침탄"], after.GetProperty("steps").EnumerateArray().Select(s => s.GetProperty("stepName").GetString()));
+        v1 = await _client.GetFromJsonAsync<JsonElement>($"/api/standards/{standardId}?versionId={v1Id}");
+        Assert.Equal(4, v1.GetProperty("steps").GetArrayLength());
     }
 
     [Fact]

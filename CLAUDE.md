@@ -6,8 +6,8 @@
 
 | 경로 | 내용 |
 |-|-|
-| `docs/bbakggum_신규 설계안_V3.md` | **설계 기준 문서** (V3.13). 업무 규칙·테이블·주의사항의 근거 |
-| `db/bbakggum_v2_DDL_V3.sql` | **DDL 단일 원본** (77 테이블 + 5 VIEW + 초기 데이터). 스키마 변경은 여기만 수정 |
+| `docs/bbakggum_신규 설계안_V3.md` | **설계 기준 문서** (V3.14). 업무 규칙·테이블·주의사항의 근거 |
+| `db/bbakggum_v2_DDL_V3.sql` | **DDL 단일 원본** (79 테이블 + 5 VIEW + 초기 데이터). 스키마 변경은 여기만 수정 |
 | `db/test/smoke_scenario.sql` | 업무 흐름 스모크 시나리오 (DDL 변경 후 반드시 실행) |
 | `db/dev/dev-db.ps1` | 개발 DB 관리 (3307 포트, 로컬 전용). `seed_dev.sql` = 화면 확인용 개발 데이터 |
 | `db/test/legacy/` | 구 SP 비교용 (원문 복사, 테스트가 `jimes_legacy_ref_test`로 실행) |
@@ -50,7 +50,7 @@ npm run lint --prefix web
 - **작업 LOT = 단위공정 1회 수행.** LOT번호 `YYMMDD-설비이니셜-순번` (재작업도 동일). 입고는 LOT 관리 안 함
 - 투입: 주 LOT 생성 전 **수주번호**, 이후 **주 LOT** 입력. 수주가 여러 주 LOT이면 선택창. 모든 추적은 **주 LOT 기준**
 - LOT 상태는 단위공정별 **배정 → 투입 → 완료** 만 (검사·출하는 상태 아님)
-- 공정 = 경로(`heat_process_operation`) / 단계 템플릿(`step_template`) / 조건 **항목 × 단계** (`standard_condition`)
+- 공정 = 경로(`heat_process_operation`) / 조건 **항목 × 스텝** (`standard_condition`). 작업표준 입력표의 스텝·항목은 Version 마다 가변(`standard_version_step/_item`), 단계 템플릿(`step_template`)은 초기값
 - 혼적 LOT: 투입 품목 중 1개로 **표준 확정** → 조건을 LOT에 복사 (수정 가능)
 - 양품 = 투입 − 부적합 (매 공정, 저장 안 하고 VIEW 계산). 부적합은 발견 공정 귀속 + 주 LOT 병기
 - 검사 = 1회 : 대상 N (`inspection_target`), **측정·판정은 검사 공통**, 성적서는 **대상(품목)별 1장**. 검사구분 입고/공정/출하

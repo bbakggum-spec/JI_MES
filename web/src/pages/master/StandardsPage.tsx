@@ -1,13 +1,17 @@
-import { CopyOutlined, PlusOutlined } from '@ant-design/icons'
+import { CopyOutlined, PlusOutlined, SaveOutlined } from '@ant-design/icons'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Alert, App, Button, Col, Drawer, Empty, Form, Input, InputNumber, Row, Select, Space, Switch, Table, Tabs, Tag, Typography } from 'antd'
+import { Alert, App, Button, Col, Form, Input, InputNumber, Modal, Radio, Row, Select, Space, Switch, Table, Tabs, Tag, Typography } from 'antd'
+import EditorWindow from '../../components/EditorWindow'
 import dayjs from 'dayjs'
 import { useMemo, useState } from 'react'
 import { ApiError, api } from '../../api/client'
 import { useCan } from '../../auth/useAuth'
+import { useDataVersion } from '../../hooks/useDataVersion'
 import { useOptions } from '../../hooks/useOptions'
 import { queryKeys } from '../../queryKeys'
 import type { PageProps } from '../registry'
+import ConditionGrid from './ConditionGrid'
+import { COMMON, cellKey, emptyLayout, layoutOf, newStep, toConditions, toValues, type ConditionRow, type GridItem, type GridLayout, type GridValues } from './conditionGridModel'
 import type { StepTemplate, StepTemplateDetail } from './StepTemplatesPage'
 
 interface Standard {
@@ -47,22 +51,20 @@ interface Version {
   usageCount: number
 }
 
-interface Condition {
-  stepTemplateItemId: number | null
-  conditionItemId: number
-  conditionValue: string | null
-}
-
 interface Detail {
   header: Standard
   versions: Version[]
   version: Version | null
-  template: StepTemplateDetail | null
-  conditions: Condition[]
+  steps: { sequenceNo: number; stepName: string }[]
+  items: (GridItem & { sequenceNo: number })[]
+  conditions: ConditionRow[]
 }
 
-type Values = Record<string, string>
-const cellKey = (step: number | null, item: number) => `${step ?? 0}:${item}`
+/** 서버 Version → 입력표 (스텝 key 새로 부여) */
+function gridOf(d: Pick<Detail, 'steps' | 'items' | 'conditions'>): { layout: GridLayout; values: GridValues } {
+  const steps = d.steps.map((s) => newStep(s.stepName))
+  return { layout: { steps, items: d.items }, values: toValues(steps, d.conditions) }
+}
 
 /** 작업표준 (설계 §2, 구 F_WorkStandardAddForm) — 저장 = 새 버전, 조건 = 관리항목 × [공통 + 단계] */
 export default function StandardsPage({ menuKey }: PageProps) {
@@ -103,27 +105,28 @@ export default function StandardsPage({ menuKey }: PageProps) {
           { title: '버전', dataIndex: 'currentVersionNo', width: 60, render: (v: number | null) => v && `v${v}` },
         ]} />
       {editing !== null && (
-        <StandardDrawer id={editing === 'new' ? null : editing} canEdit={editing === 'new' ? canCreate : canUpdate} onClose={() => setEditing(null)}
+        <StandardWindow id={editing === 'new' ? null : editing} canEdit={editing === 'new' ? canCreate : canUpdate} onClose={() => setEditing(null)}
           onSaved={(id) => { setEditing(id); void queryClient.invalidateQueries({ queryKey: key }) }} />
       )}
     </>
   )
 }
 
-function StandardDrawer({ id, canEdit, onClose, onSaved }: { id: number | null; canEdit: boolean; onClose: () => void; onSaved: (id: number) => void }) {
+function StandardWindow({ id, canEdit, onClose, onSaved }: { id: number | null; canEdit: boolean; onClose: () => void; onSaved: (id: number) => void }) {
   const [viewVersionId, setViewVersionId] = useState<number | null>(null)
   const detail = useQuery({
     queryKey: [...queryKeys.master, 'standard', 'detail', id],
     queryFn: ({ signal }) => api<Detail>(`/api/standards/${id}`, { signal }),
     enabled: id !== null,
   })
+  const dataVersion = useDataVersion(detail.data)
   if (id !== null && !detail.data) return null
   const d = detail.data
   return (
-    <Drawer open onClose={onClose} size={1200} title={d ? `${d.header.standardName} (${d.header.standardCode})` : '작업표준 추가'} destroyOnHidden>
+    <EditorWindow onClose={onClose} size={1200} title={d ? `${d.header.standardName} (${d.header.standardCode})` : '작업표준 추가'} destroyOnHidden>
       {d ? (
         <Tabs items={[
-          { key: 'edit', label: `조건 (현재 v${d.version?.versionNo ?? '-'})`, children: <Editor key={detail.dataUpdatedAt} standard={d} canEdit={canEdit} onSaved={() => { void detail.refetch(); onSaved(id!) }} /> },
+          { key: 'edit', label: `조건 (현재 v${d.version?.versionNo ?? '-'})`, children: <Editor key={dataVersion} standard={d} canEdit={canEdit} onSaved={() => { void detail.refetch(); onSaved(id!) }} /> },
           {
             key: 'versions', label: `버전 이력 (${d.versions.length})`, children: (
               <>
@@ -144,7 +147,7 @@ function StandardDrawer({ id, canEdit, onClose, onSaved }: { id: number | null; 
           },
         ]} />
       ) : <Editor canEdit={canEdit} onSaved={(newId) => onSaved(newId!)} />}
-    </Drawer>
+    </EditorWindow>
   )
 }
 
@@ -153,12 +156,12 @@ function OldVersion({ standardId, versionId }: { standardId: number; versionId: 
     queryKey: [...queryKeys.master, 'standard', 'version', versionId],
     queryFn: ({ signal }) => api<Detail>(`/api/standards/${standardId}?versionId=${versionId}`, { signal }),
   })
-  if (!v.data) return null
-  const values = Object.fromEntries(v.data.conditions.map((c) => [cellKey(c.stepTemplateItemId, c.conditionItemId), c.conditionValue ?? '']))
+  const grid = useMemo(() => (v.data ? gridOf(v.data) : null), [v.data])
+  if (!v.data || !grid) return null
   return (
     <div style={{ marginTop: 16 }}>
       <Typography.Text strong>v{v.data.version?.versionNo} 조건 (보기 전용)</Typography.Text>
-      <Matrix template={v.data.template} values={values} readOnly />
+      <ConditionGrid layout={grid.layout} values={grid.values} showCommon editable={false} />
     </div>
   )
 }
@@ -174,7 +177,6 @@ interface HeaderForm {
 }
 
 interface VersionForm {
-  stepTemplateId?: number | null
   chargeQty: number
   chargeUnit: string
   runningTimeMin?: number | null
@@ -194,22 +196,21 @@ function Editor({ standard, canEdit, onSaved }: { standard?: Detail; canEdit: bo
     queryKey: [...queryKeys.master, 'heat_process', 'all'],
     queryFn: ({ signal }) => api<{ heatProcessId: number; heatProcessName: string }[]>('/api/heat-processes', { signal }),
   })
-  const [values, setValues] = useState<Values>(() =>
-    Object.fromEntries((standard?.conditions ?? []).map((c) => [cellKey(c.stepTemplateItemId, c.conditionItemId), c.conditionValue ?? ''])))
+  const initial = useMemo(() => (standard ? gridOf(standard) : { layout: emptyLayout(), values: {} }), [standard])
+  const [layout, setLayout] = useState<GridLayout>(initial.layout)
+  const [values, setValues] = useState<GridValues>(initial.values)
   const [unitProcessId, setUnitProcessId] = useState<number | undefined>(standard?.header.unitProcessId)
+  /** 입력표를 불러온 템플릿 (참고로 함께 저장) */
   const [templateId, setTemplateId] = useState<number | null>(standard?.version?.stepTemplateId ?? null)
+  const [savingAsTemplate, setSavingAsTemplate] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const canCreateTemplate = useCan('master.step_template', 'create')
 
   const templates = useQuery({
     queryKey: [...queryKeys.master, 'step_template', 'byUnit', unitProcessId],
     queryFn: ({ signal }) => api<StepTemplate[]>(`/api/step-templates?unitProcessId=${unitProcessId}`, { signal }),
     enabled: unitProcessId !== undefined,
-  })
-  const template = useQuery({
-    queryKey: [...queryKeys.master, 'step_template', 'detail', templateId],
-    queryFn: ({ signal }) => api<StepTemplateDetail>(`/api/step-templates/${templateId}`, { signal }),
-    enabled: templateId !== null,
   })
   const copySources = useQuery({
     queryKey: [...queryKeys.master, 'standard', 'byUnit', unitProcessId],
@@ -217,31 +218,55 @@ function Editor({ standard, canEdit, onSaved }: { standard?: Detail; canEdit: bo
     enabled: unitProcessId !== undefined && canEdit,
   })
 
+  /** 템플릿 불러오기 — 스텝·관리항목을 템플릿대로, 이미 적은 값은 (스텝 이름, 항목)이 같으면 유지 (구 LoadDetailsWithLatestTemplate) */
+  const loadTemplate = async (id: number) => {
+    const tpl = await api<StepTemplateDetail>(`/api/step-templates/${id}`)
+    const next = layoutOf(tpl)
+    const byName = new Map(layout.steps.map((s) => [s.name.trim(), s.key]))
+    const kept: GridValues = {}
+    for (const item of next.items) {
+      const common = values[cellKey(COMMON, item.conditionItemId)]
+      if (common) kept[cellKey(COMMON, item.conditionItemId)] = common
+      for (const s of next.steps) {
+        const old = byName.get(s.name.trim())
+        const v = old && values[cellKey(old, item.conditionItemId)]
+        if (v) kept[cellKey(s.key, item.conditionItemId)] = v
+      }
+    }
+    setTemplateId(id)
+    setLayout(next)
+    setValues(kept)
+    message.info(`템플릿 '${tpl.header.stepTemplateName}' 구성을 불러왔습니다. 스텝·항목은 자유롭게 고칠 수 있습니다.`)
+  }
+
   /** 다른 표준(같은 단위공정)의 현재 버전을 불러와 수정 (구 F_StandardCopy) */
   const copyFrom = async (sourceId: number) => {
     const src = await api<Detail>(`/api/standards/${sourceId}`)
     if (!src.version) return
+    const grid = gridOf(src)
     setTemplateId(src.version.stepTemplateId)
+    setLayout(grid.layout)
+    setValues(grid.values)
     versionForm.setFieldsValue({
-      stepTemplateId: src.version.stepTemplateId, chargeQty: src.version.chargeQty, chargeUnit: src.version.chargeUnit,
+      chargeQty: src.version.chargeQty, chargeUnit: src.version.chargeUnit,
       runningTimeMin: src.version.runningTimeMin, remark: `${src.header.standardCode} v${src.version.versionNo} 에서 복사`,
     })
-    setValues(Object.fromEntries(src.conditions.map((c) => [cellKey(c.stepTemplateItemId, c.conditionItemId), c.conditionValue ?? ''])))
     message.info(`${src.header.standardName} v${src.version.versionNo} 조건을 불러왔습니다. 저장하면 새 버전입니다.`)
   }
 
   const save = async () => {
     setError(null)
     const v = await versionForm.validateFields()
-    const conditions = Object.entries(values)
-      .filter(([, value]) => value.trim() !== '')
-      .map(([k, value]) => {
-        const [step, item] = k.split(':').map(Number)
-        return { stepTemplateItemId: step === 0 ? null : step, conditionItemId: item, conditionValue: value }
-      })
-      // 현재 템플릿에 없는 단계 값은 버린다 (템플릿을 바꾼 경우)
-      .filter((c) => c.stepTemplateItemId === null || (template.data?.steps ?? []).some((s) => s.stepTemplateItemId === c.stepTemplateItemId))
-    const version = { ...v, stepTemplateId: templateId, conditions }
+    if (layout.steps.some((s) => s.name.trim() === '')) {
+      setError('이름이 빈 스텝이 있습니다. 이름을 적거나 스텝을 지우세요.')
+      return
+    }
+    const version = {
+      ...v, stepTemplateId: templateId,
+      steps: layout.steps.map((s) => s.name.trim()),
+      items: layout.items.map((i) => i.conditionItemId),
+      conditions: toConditions(layout, values),
+    }
     setSaving(true)
     try {
       if (standard) {
@@ -273,7 +298,7 @@ function Editor({ standard, canEdit, onSaved }: { standard?: Detail; canEdit: bo
             <Col span={12}><Form.Item name="partId" label="품목" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={parts.options} /></Form.Item></Col>
             <Col span={6}>
               <Form.Item name="unitProcessId" label="단위공정" rules={[{ required: true }]}>
-                <Select options={units.options} onChange={(v: number) => { setUnitProcessId(v); setTemplateId(null); setValues({}) }} />
+                <Select options={units.options} onChange={(v: number) => { setUnitProcessId(v); setTemplateId(null) }} />
               </Form.Item>
             </Col>
             <Col span={6}><Form.Item name="equipmentTypeId" label="설비 유형"><Select allowClear options={types.options} /></Form.Item></Col>
@@ -291,17 +316,32 @@ function Editor({ standard, canEdit, onSaved }: { standard?: Detail; canEdit: bo
       <Form form={versionForm} layout="inline" disabled={!canEdit} style={{ margin: '16px 0', rowGap: 8 }} initialValues={standard?.version
         ? { chargeQty: standard.version.chargeQty, chargeUnit: standard.version.chargeUnit, runningTimeMin: standard.version.runningTimeMin }
         : { chargeQty: 0, chargeUnit: 'charge' }}>
-        <Form.Item label="단계 템플릿">
-          <Select style={{ width: 220 }} value={templateId} onChange={setTemplateId} placeholder={unitProcessId ? '템플릿 선택' : '단위공정 먼저'}
-            options={(templates.data ?? []).map((t) => ({ value: t.stepTemplateId, label: `${t.stepTemplateName}${t.equipmentTypeName ? ` · ${t.equipmentTypeName}` : ''}` }))} />
-        </Form.Item>
         <Form.Item name="chargeQty" label="charge 수량" rules={[{ required: true }]}><InputNumber min={0} /></Form.Item>
         <Form.Item name="chargeUnit" label="단위"><Input style={{ width: 90 }} maxLength={20} /></Form.Item>
         <Form.Item name="runningTimeMin" label="작업시간(분)" tooltip="스케줄 작업시간 ① (설계 §7)"><InputNumber min={1} /></Form.Item>
         <Form.Item name="remark" label="변경 내용"><Input style={{ width: 220 }} maxLength={255} /></Form.Item>
       </Form>
 
-      <Matrix template={template.data ?? null} values={values} readOnly={!canEdit} onChange={(k, v) => setValues((old) => ({ ...old, [k]: v }))} />
+      {canEdit && (
+        <Space style={{ marginBottom: 8 }} wrap>
+          <Select<number> style={{ width: 300 }} size="small" value={null} disabled={!unitProcessId}
+            placeholder={unitProcessId ? '단계 템플릿 불러오기 (스텝·항목 채우기)' : '단위공정을 먼저 고르세요'}
+            options={(templates.data ?? []).map((x) => ({ value: x.stepTemplateId, label: `${x.stepTemplateName}${x.equipmentTypeName ? ` · ${x.equipmentTypeName}` : ''}` }))}
+            onChange={(id) => void loadTemplate(id)} />
+          {templateId && <Typography.Text type="secondary">불러온 템플릿: {templates.data?.find((x) => x.stepTemplateId === templateId)?.stepTemplateName ?? `#${templateId}`}</Typography.Text>}
+          {canCreateTemplate && (
+            <Button size="small" icon={<SaveOutlined />} disabled={!unitProcessId || (layout.steps.length === 0 && layout.items.length === 0)}
+              onClick={() => setSavingAsTemplate(true)}>이 구성을 템플릿으로 저장</Button>
+          )}
+        </Space>
+      )}
+      <ConditionGrid layout={layout} onLayoutChange={setLayout} values={values} onValuesChange={setValues} showCommon editable={canEdit} />
+      {savingAsTemplate && unitProcessId && (
+        <SaveAsTemplateModal layout={layout} unitProcessId={unitProcessId}
+          equipmentTypeId={standard?.header.equipmentTypeId ?? header.getFieldValue('equipmentTypeId') ?? null}
+          onClose={() => setSavingAsTemplate(false)}
+          onSaved={(id) => { setSavingAsTemplate(false); setTemplateId(id); void templates.refetch() }} />
+      )}
 
       {error && <Alert style={{ marginTop: 12 }} type="error" showIcon title={error} />}
       {canEdit && (
@@ -343,46 +383,52 @@ function HeaderInfo({ standard: s, canEdit, onSaved }: { standard: Standard; can
   )
 }
 
-/** 관리항목(행) × [공통 + 단계](열) — 숫자 항목은 숫자만 (서버도 검증) */
-function Matrix({ template, values, readOnly, onChange }: {
-  template: StepTemplateDetail | null; values: Values; readOnly?: boolean; onChange?: (key: string, value: string) => void
+/** 작업표준에서 만든 입력표 구성을 새 단계 템플릿으로 (구: 템플릿이 없으면 저장 시 자동 저장 → 신규는 선택) */
+function SaveAsTemplateModal({ layout, unitProcessId, equipmentTypeId, onClose, onSaved }: {
+  layout: GridLayout; unitProcessId: number; equipmentTypeId: number | null; onClose: () => void; onSaved: (id: number) => void
 }) {
-  const conditionItems = useOptions('/api/master/condition_item/options')
-  const columns = useMemo(() => template ? [{ id: null as number | null, name: '공통' }, ...template.steps.map((s) => ({ id: s.stepTemplateItemId as number | null, name: s.stepName }))] : [], [template])
-  // 템플릿 관리항목 + 값은 있는데 템플릿에 없는 항목 (템플릿 변경·이관 자료) — 숨기면 저장 시 값이 사라진 것처럼 보인다
-  const rows = useMemo(() => {
-    if (!template) return []
-    const inTemplate = new Set(template.conditions.map((c) => c.conditionItemId))
-    const extra = [...new Set(Object.entries(values).filter(([, v]) => v !== '').map(([k]) => Number(k.split(':')[1])))]
-      .filter((id) => !inTemplate.has(id))
-      .map((id) => ({ conditionItemId: id, conditionItemName: conditionItems.labelOf(id) ?? `#${id}`, unitCode: null, valueType: 'TEXT', sequenceNo: 9999, extra: true }))
-    return [...template.conditions.map((c) => ({ ...c, extra: false })), ...extra]
-  }, [template, values, conditionItems])
-  if (!template) return <Empty description="단계 템플릿을 선택하면 조건 입력표가 나옵니다." />
-  return (
-    <Table size="small" pagination={false} bordered rowKey="conditionItemId" dataSource={rows} scroll={{ x: 'max-content' }}
-      columns={[
-        {
-          title: '관리항목', fixed: 'left' as const, width: 130,
-          render: (_: unknown, c) => (
-            <>
-              {c.conditionItemName}{c.unitCode && <Typography.Text type="secondary"> ({c.unitCode})</Typography.Text>}
-              {c.extra && <div><Tag color="warning">템플릿 외</Tag></div>}
-            </>
-          ),
+  const { message } = App.useApp()
+  const [form] = Form.useForm<{ stepTemplateCode: string; stepTemplateName: string; scope: 'type' | 'all' }>()
+  const [saving, setSaving] = useState(false)
+  const save = async () => {
+    const v = await form.validateFields()
+    if (layout.steps.some((s) => s.name.trim() === '')) {
+      message.error('이름이 빈 스텝이 있습니다.')
+      return
+    }
+    setSaving(true)
+    try {
+      const r = await api<{ stepTemplateId: number }>('/api/step-templates', {
+        method: 'POST',
+        body: {
+          stepTemplateCode: v.stepTemplateCode, stepTemplateName: v.stepTemplateName, unitProcessId, isActive: true,
+          equipmentTypeId: v.scope === 'type' ? equipmentTypeId : null, equipmentId: null,
+          steps: layout.steps.map((s) => s.name.trim()), conditionItemIds: layout.items.map((i) => i.conditionItemId),
         },
-        ...columns.map((col) => ({
-          title: col.name, width: 100,
-          render: (_: unknown, c: StepTemplateDetail['conditions'][number]) => {
-            const k = cellKey(col.id, c.conditionItemId)
-            const value = values[k] ?? ''
-            const invalid = c.valueType === 'NUMBER' && value.trim() !== '' && Number.isNaN(Number(value))
-            return readOnly
-              ? value
-              : <Input size="small" value={value} status={invalid ? 'error' : undefined} inputMode={c.valueType === 'NUMBER' ? 'decimal' : undefined}
-                  onChange={(e) => onChange?.(k, e.target.value)} />
-          },
-        })),
-      ]} />
+      })
+      message.success(`템플릿 '${v.stepTemplateName}' 을 등록했습니다.`)
+      onSaved(r.stepTemplateId)
+    } catch (e) {
+      message.error(e instanceof ApiError && e.errors ? Object.values(e.errors).flat().join(' ') : e instanceof Error ? e.message : String(e))
+    } finally {
+      setSaving(false)
+    }
+  }
+  return (
+    <Modal open title="이 구성을 단계 템플릿으로 저장" onCancel={onClose} onOk={() => void save()} okText="저장" confirmLoading={saving} destroyOnHidden>
+      <Typography.Paragraph type="secondary">
+        스텝 {layout.steps.length}개 · 관리항목 {layout.items.length}개 (값은 저장하지 않음). 같은 단위공정의 다른 작업표준에서 불러올 수 있습니다.
+      </Typography.Paragraph>
+      <Form form={form} layout="vertical" initialValues={{ scope: equipmentTypeId ? 'type' : 'all' }}>
+        <Form.Item name="stepTemplateCode" label="템플릿 코드" rules={[{ required: true, max: 50 }]}><Input autoFocus /></Form.Item>
+        <Form.Item name="stepTemplateName" label="이름" rules={[{ required: true, max: 100 }]}><Input placeholder="예: 가스로 침탄" /></Form.Item>
+        <Form.Item name="scope" label="적용 설비">
+          <Radio.Group options={[
+            { value: 'type', label: '이 설비 유형', disabled: !equipmentTypeId },
+            { value: 'all', label: '설비 유형 공통' },
+          ]} />
+        </Form.Item>
+      </Form>
+    </Modal>
   )
 }

@@ -57,14 +57,19 @@ export default function AppLayout() {
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
+      {/* 메뉴는 화면 높이에 고정되고 메뉴 영역만 따로 스크롤 (본문 스크롤과 무관) */}
       <Sider collapsible collapsed={collapsed} onCollapse={setCollapsed} width={220} theme="light"
-        style={{ borderRight: `1px solid ${token.colorBorderSecondary}` }}>
-        <div style={{ height: 56, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-          <img src="/favicon.svg" alt="" width={24} height={24} />
-          {!collapsed && <Typography.Text strong style={{ fontSize: 16 }}>JI MES</Typography.Text>}
+        style={{ borderRight: `1px solid ${token.colorBorderSecondary}`, position: 'sticky', top: 0, height: '100vh' }}>
+        <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ height: 56, flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+            <img src="/favicon.svg" alt="" width={24} height={24} />
+            {!collapsed && <Typography.Text strong style={{ fontSize: 16 }}>JI MES</Typography.Text>}
+          </div>
+          <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden' }}>
+            <Menu mode="inline" items={items} selectedKeys={selectedKey ? [selectedKey] : []}
+              openKeys={collapsed ? undefined : openKeys} onOpenChange={setOpenKeys} style={{ borderInlineEnd: 0 }} />
+          </div>
         </div>
-        <Menu mode="inline" items={items} selectedKeys={selectedKey ? [selectedKey] : []}
-          openKeys={collapsed ? undefined : openKeys} onOpenChange={setOpenKeys} style={{ borderInlineEnd: 0 }} />
       </Sider>
       <Layout>
         <Header style={{

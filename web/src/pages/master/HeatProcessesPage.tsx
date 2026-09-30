@@ -1,6 +1,7 @@
 import { ArrowDownOutlined, ArrowUpOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { App, Button, Checkbox, Drawer, Form, Input, Radio, Select, Space, Switch, Table, Tag, Typography } from 'antd'
+import { App, Button, Checkbox, Form, Input, Radio, Select, Space, Switch, Table, Tag, Typography } from 'antd'
+import EditorWindow from '../../components/EditorWindow'
 import dayjs from 'dayjs'
 import { useState } from 'react'
 import { api, fieldErrors } from '../../api/client'
@@ -71,7 +72,7 @@ export default function HeatProcessesPage({ menuKey }: PageProps) {
           { title: '버전', dataIndex: 'currentVersionNo', width: 70, render: (v: number | null) => v && `v${v}` },
         ]} />
       {editing !== null && (
-        <HeatProcessDrawer id={editing === 'new' ? null : editing} canEdit={editing === 'new' ? canCreate : canUpdate}
+        <HeatProcessWindow id={editing === 'new' ? null : editing} canEdit={editing === 'new' ? canCreate : canUpdate}
           onClose={() => setEditing(null)}
           onSaved={(id) => { setEditing(id); void queryClient.invalidateQueries({ queryKey: key }) }} />
       )}
@@ -79,7 +80,7 @@ export default function HeatProcessesPage({ menuKey }: PageProps) {
   )
 }
 
-function HeatProcessDrawer({ id, canEdit, onClose, onSaved }: { id: number | null; canEdit: boolean; onClose: () => void; onSaved: (id: number) => void }) {
+function HeatProcessWindow({ id, canEdit, onClose, onSaved }: { id: number | null; canEdit: boolean; onClose: () => void; onSaved: (id: number) => void }) {
   const { message } = App.useApp()
   const [form] = Form.useForm<{ heatProcessCode?: string; heatProcessName: string; description?: string; isActive: boolean; remark?: string }>()
   const units = useOptions('/api/master/unit_process/options')
@@ -133,7 +134,7 @@ function HeatProcessDrawer({ id, canEdit, onClose, onSaved }: { id: number | nul
   if (id !== null && !detail.data) return null
   const h = detail.data?.header
   return (
-    <Drawer open onClose={onClose} size="large" title={h ? `${h.heatProcessName} (${h.heatProcessCode})` : '공정 추가'}
+    <EditorWindow onClose={onClose} size="large" title={h ? `${h.heatProcessName} (${h.heatProcessCode})` : '공정 추가'}
       extra={canEdit && <Button type="primary" loading={saving} onClick={() => void save()}>저장</Button>}>
       <Form form={form} layout="vertical" disabled={!canEdit}
         initialValues={h ? { heatProcessName: h.heatProcessName, description: h.description, isActive: h.isActive } : { isActive: true }}>
@@ -185,6 +186,6 @@ function HeatProcessDrawer({ id, canEdit, onClose, onSaved }: { id: number | nul
           ]} />
         </>
       )}
-    </Drawer>
+    </EditorWindow>
   )
 }

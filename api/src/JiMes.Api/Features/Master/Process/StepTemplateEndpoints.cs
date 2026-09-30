@@ -29,7 +29,6 @@ public sealed class StepItemDto
     public long StepTemplateItemId { get; init; }
     public int SequenceNo { get; init; }
     public string StepName { get; init; } = "";
-    public long UsageCount { get; init; }
 }
 
 public sealed class TemplateConditionDto
@@ -41,19 +40,28 @@ public sealed class TemplateConditionDto
     public int SequenceNo { get; init; }
 }
 
+public sealed class ConditionItemRowDto
+{
+    public long ConditionItemId { get; init; }
+    public string ConditionItemCode { get; init; } = "";
+    public string ConditionItemName { get; init; } = "";
+    public string? UnitCode { get; init; }
+    public string ValueType { get; init; } = "NUMBER";
+    public bool IsActive { get; init; }
+}
+
 public sealed record StepTemplateDetail(StepTemplateDto Header, IReadOnlyList<StepItemDto> Steps, IReadOnlyList<TemplateConditionDto> Conditions);
 
-/// <param name="StepTemplateItemId">기존 단계 (이름·순서 변경) — 없으면 새 단계</param>
-public sealed record StepInput(long? StepTemplateItemId, string? StepName);
-
+/// <param name="Steps">스텝(열) 이름 — 순서 = 열 순서</param>
+/// <param name="ConditionItemIds">관리항목(행) — 순서 = 행 순서</param>
 public sealed record StepTemplateSaveRequest(
     string? StepTemplateCode, string? StepTemplateName, long UnitProcessId, long? EquipmentTypeId, long? EquipmentId, bool IsActive,
-    StepInput[]? Steps, long[]? ConditionItemIds);
+    string[]? Steps, long[]? ConditionItemIds);
 
 /// <summary>
-/// 단계 템플릿 (구 t_standardtemplate row/column, F_StandardTemplateAdd) — 설비(유형) × 단위공정의 단계(열)와 관리항목(행).
-/// 작업표준·작업 LOT 조건이 단계(step_template_item)를 참조하므로 단계는 id 를 유지한 채 이름·순서만 바꾸고,
-/// 참조 중인 단계는 삭제하지 않는다.
+/// 단계 템플릿 (구 t_standardtemplate row/column, F_StandardTemplateAdd) — 설비(유형) × 단위공정의 스텝(열)과 관리항목(행).
+/// 작업표준 입력표를 처음 채우는 초기값일 뿐이다 (표준은 스텝·항목을 Version 마다 따로 저장, §22.5).
+/// 그래서 템플릿을 고쳐도 기존 작업표준은 바뀌지 않고, 스텝·항목은 자유롭게 바꿀 수 있다.
 /// </summary>
 public static class StepTemplateEndpoints
 {
@@ -69,7 +77,18 @@ public static class StepTemplateEndpoints
                 return Results.Ok(await DetailAsync(conn, null, id) ?? throw new NotFoundException("step_template", id));
             })
             .RequireLogin();
-        g.MapPost("/", (StepTemplateSaveRequest r, IDbConnectionFactory db, AuditWriter audit, CancellationToken ct) => SaveAsync(null, r, db, audit, ct))
+        // 입력표 행 후보 (이름·단위·값 형식) — 템플릿·작업표준 화면의 "관리항목 추가"
+        g.MapGet("/condition-items", async (IDbConnectionFactory db, CancellationToken ct) =>
+            {
+                await using var conn = await db.OpenAsync(ct);
+                return Results.Ok(await conn.QueryAsync<ConditionItemRowDto>(
+                    """
+                    SELECT condition_item_id, condition_item_code, condition_item_name, unit_code, value_type, is_active
+                      FROM condition_item ORDER BY sort_order, condition_item_code
+                    """));
+            })
+            .RequireLogin();
+        g.MapPost("/",(StepTemplateSaveRequest r, IDbConnectionFactory db, AuditWriter audit, CancellationToken ct) => SaveAsync(null, r, db, audit, ct))
             .RequirePermission(key, PermissionAction.Create);
         g.MapPut("/{id:long}", (long id, StepTemplateSaveRequest r, IDbConnectionFactory db, AuditWriter audit, CancellationToken ct) => SaveAsync(id, r, db, audit, ct))
             .RequirePermission(key, PermissionAction.Update);
@@ -81,7 +100,7 @@ public static class StepTemplateEndpoints
                t.equipment_type_id, et.equipment_type_name, t.equipment_id, e.equipment_name, t.is_active,
                (SELECT COUNT(*) FROM step_template_item i WHERE i.step_template_id = t.step_template_id) AS step_count,
                (SELECT COUNT(*) FROM step_template_condition c WHERE c.step_template_id = t.step_template_id) AS condition_count,
-               (SELECT COUNT(*) FROM standard_version sv WHERE sv.step_template_id = t.step_template_id) AS usage_count
+               (SELECT COUNT(DISTINCT sv.standard_id) FROM standard_version sv WHERE sv.step_template_id = t.step_template_id AND sv.is_current = 1) AS usage_count
           FROM step_template t
           JOIN unit_process u ON u.unit_process_id = t.unit_process_id
           LEFT JOIN equipment_type et ON et.equipment_type_id = t.equipment_type_id
@@ -105,9 +124,7 @@ public static class StepTemplateEndpoints
         if (header is null) return null;
         var steps = await conn.QueryAsync<StepItemDto>(
             """
-            SELECT i.step_template_item_id, i.sequence_no, i.step_name,
-                   (SELECT COUNT(*) FROM standard_condition sc WHERE sc.step_template_item_id = i.step_template_item_id)
-                 + (SELECT COUNT(*) FROM production_work_condition pc WHERE pc.step_template_item_id = i.step_template_item_id) AS usage_count
+            SELECT i.step_template_item_id, i.sequence_no, i.step_name
               FROM step_template_item i WHERE i.step_template_id = @id ORDER BY i.sequence_no
             """, new { id }, tx);
         var conditions = await conn.QueryAsync<TemplateConditionDto>(
@@ -123,10 +140,12 @@ public static class StepTemplateEndpoints
     {
         var code = HeatProcessEndpoints.Required(r.StepTemplateCode, "stepTemplateCode", 50);
         var name = HeatProcessEndpoints.Required(r.StepTemplateName, "stepTemplateName", 100);
-        var steps = (r.Steps ?? []).Select(s => s with { StepName = s.StepName?.Trim() }).ToList();
-        if (steps.Count == 0 || steps.Any(s => string.IsNullOrEmpty(s.StepName) || s.StepName.Length > 100))
-            throw new RequestValidationException("steps", "단계를 1개 이상, 이름 1~100자로 지정하세요.");
+        var steps = (r.Steps ?? []).Select(s => s?.Trim() ?? "").ToList();
+        if (steps.Any(s => s.Length is 0 or > 100))
+            throw new RequestValidationException("steps", "스텝 이름은 1~100자여야 합니다.");
         var conditionIds = (r.ConditionItemIds ?? []).Distinct().ToArray();
+        if (steps.Count == 0 && conditionIds.Length == 0)
+            throw new RequestValidationException("steps", "스텝이나 관리항목을 1개 이상 넣으세요.");
 
         await using var conn = await db.OpenAsync(ct);
         await using var tx = await conn.BeginTransactionAsync(ct);
@@ -153,8 +172,6 @@ public static class StepTemplateEndpoints
         {
             templateId = id.Value;
             before = await DetailAsync(conn, tx, templateId) ?? throw new NotFoundException("step_template", templateId);
-            if (before.Header.UsageCount > 0 && before.Header.UnitProcessId != r.UnitProcessId)
-                throw new BusinessRuleException("TEMPLATE_IN_USE", "작업표준에서 쓰는 템플릿은 단위공정을 바꿀 수 없습니다.");
             await conn.ExecuteAsync(
                 """
                 UPDATE step_template SET step_template_code = @code, step_template_name = @name, unit_process_id = @UnitProcessId,
@@ -163,27 +180,11 @@ public static class StepTemplateEndpoints
                 """, args, tx);
         }
 
-        // 단계: 기존 id 유지 → 순번 충돌을 피하려고 먼저 임시 순번으로 옮긴 뒤 재부여 (한 트랜잭션, §15.1 S4 와 같은 방식)
-        var existing = before?.Steps ?? [];
-        var keep = steps.Where(s => s.StepTemplateItemId is not null).Select(s => s.StepTemplateItemId!.Value).ToHashSet();
-        if (keep.Except(existing.Select(e => e.StepTemplateItemId)).Any())
-            throw new RequestValidationException("steps", "이 템플릿의 단계가 아닌 id 가 있습니다.");
-        foreach (var removed in existing.Where(e => !keep.Contains(e.StepTemplateItemId)))
-        {
-            if (removed.UsageCount > 0)
-                throw new BusinessRuleException("STEP_IN_USE", $"단계 '{removed.StepName}' 은 작업표준·작업 조건에서 쓰고 있어 삭제할 수 없습니다. 이름만 바꾸세요.");
-            await conn.ExecuteAsync("DELETE FROM step_template_item WHERE step_template_item_id = @Id", new { Id = removed.StepTemplateItemId }, tx);
-        }
-        await conn.ExecuteAsync("UPDATE step_template_item SET sequence_no = sequence_no + 100000 WHERE step_template_id = @templateId", new { templateId }, tx);
+        // 초기값이라 참조가 없다 → 통째로 다시 쓴다
+        await conn.ExecuteAsync("DELETE FROM step_template_item WHERE step_template_id = @templateId", new { templateId }, tx);
         for (var i = 0; i < steps.Count; i++)
-        {
-            if (steps[i].StepTemplateItemId is { } itemId)
-                await conn.ExecuteAsync("UPDATE step_template_item SET sequence_no = @seq, step_name = @StepName WHERE step_template_item_id = @itemId",
-                    new { seq = i + 1, steps[i].StepName, itemId }, tx);
-            else
-                await conn.ExecuteAsync("INSERT INTO step_template_item (step_template_id, sequence_no, step_name) VALUES (@templateId, @seq, @StepName)",
-                    new { templateId, seq = i + 1, steps[i].StepName }, tx);
-        }
+            await conn.ExecuteAsync("INSERT INTO step_template_item (step_template_id, sequence_no, step_name) VALUES (@templateId, @seq, @name)",
+                new { templateId, seq = i + 1, name = steps[i] }, tx);
 
         await conn.ExecuteAsync("DELETE FROM step_template_condition WHERE step_template_id = @templateId", new { templateId }, tx);
         for (var i = 0; i < conditionIds.Length; i++)
@@ -194,7 +195,7 @@ public static class StepTemplateEndpoints
         object Snap(StepTemplateDetail d) => new
         {
             d.Header.StepTemplateCode, d.Header.StepTemplateName, d.Header.UnitProcessId, d.Header.EquipmentTypeId, d.Header.EquipmentId, d.Header.IsActive,
-            steps = d.Steps.Select(s => new { s.StepTemplateItemId, s.StepName }), conditions = d.Conditions.Select(c => c.ConditionItemId),
+            steps = d.Steps.Select(s => s.StepName), conditions = d.Conditions.Select(c => c.ConditionItemId),
         };
         await audit.WriteAsync(conn, tx, before is null ? AuditAction.Create : AuditAction.Update, "step_template", templateId,
             before is null ? null : Snap(before), Snap(after!));

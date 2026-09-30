@@ -1,11 +1,13 @@
 import { ArrowDownOutlined, ArrowUpOutlined, CopyOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Alert, App, Button, Drawer, Input, InputNumber, Select, Space, Switch, Table, Tabs, Tag, Typography } from 'antd'
+import { Alert, App, Button, Input, InputNumber, Select, Space, Switch, Table, Tabs, Tag, Typography } from 'antd'
+import EditorWindow from '../../components/EditorWindow'
 import dayjs from 'dayjs'
 import { useState } from 'react'
 import { ApiError, api } from '../../api/client'
 import { useCan } from '../../auth/useAuth'
 import { useCommonCodes } from '../../hooks/useCommonCodes'
+import { useDataVersion } from '../../hooks/useDataVersion'
 import { useOptions } from '../../hooks/useOptions'
 import { queryKeys } from '../../queryKeys'
 import type { PageProps } from '../registry'
@@ -98,14 +100,14 @@ export default function InspectionStandardsPage({ menuKey }: PageProps) {
           { title: '버전', dataIndex: 'currentVersionNo', width: 70, render: (v: number | null) => v && `v${v}` },
         ]} />
       {editing !== null && (
-        <StandardDrawer id={editing === 'new' ? null : editing} canEdit={editing === 'new' ? canCreate : canUpdate} onClose={() => setEditing(null)}
+        <StandardWindow id={editing === 'new' ? null : editing} canEdit={editing === 'new' ? canCreate : canUpdate} onClose={() => setEditing(null)}
           onSaved={(id) => { setEditing(id); void queryClient.invalidateQueries({ queryKey: key }) }} />
       )}
     </>
   )
 }
 
-function StandardDrawer({ id, canEdit, onClose, onSaved }: { id: number | null; canEdit: boolean; onClose: () => void; onSaved: (id: number) => void }) {
+function StandardWindow({ id, canEdit, onClose, onSaved }: { id: number | null; canEdit: boolean; onClose: () => void; onSaved: (id: number) => void }) {
   const [viewVersion, setViewVersion] = useState<number | null>(null)
   const detail = useQuery({
     queryKey: [...queryKeys.master, 'inspection_standard', 'detail', id],
@@ -117,14 +119,15 @@ function StandardDrawer({ id, canEdit, onClose, onSaved }: { id: number | null; 
     queryFn: ({ signal }) => api<Detail>(`/api/inspection-standards/${id}?versionId=${viewVersion}`, { signal }),
     enabled: viewVersion !== null,
   })
+  const dataVersion = useDataVersion(detail.data)
   if (id !== null && !detail.data) return null
   const d = detail.data
   return (
-    <Drawer open onClose={onClose} size={1300} destroyOnHidden
+    <EditorWindow onClose={onClose} size={1300} destroyOnHidden
       title={d ? `${d.header.partName} — ${d.header.customerName ?? '거래처 공통'}` : '검사기준 추가'}>
       {d ? (
         <Tabs items={[
-          { key: 'edit', label: `검사 항목 (현재 v${d.version?.versionNo ?? '-'})`, children: <Editor key={detail.dataUpdatedAt} detail={d} canEdit={canEdit} onSaved={() => { void detail.refetch(); onSaved(id!) }} /> },
+          { key: 'edit', label: `검사 항목 (현재 v${d.version?.versionNo ?? '-'})`, children: <Editor key={dataVersion} detail={d} canEdit={canEdit} onSaved={() => { void detail.refetch(); onSaved(id!) }} /> },
           {
             key: 'versions', label: `버전 이력 (${d.versions.length})`, children: (
               <>
@@ -148,7 +151,7 @@ function StandardDrawer({ id, canEdit, onClose, onSaved }: { id: number | null; 
           },
         ]} />
       ) : <Editor canEdit={canEdit} onSaved={onSaved} />}
-    </Drawer>
+    </EditorWindow>
   )
 }
 

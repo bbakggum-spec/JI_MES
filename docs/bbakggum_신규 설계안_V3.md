@@ -1,4 +1,4 @@
-# bbakggum DB 구조개편 설계안 V3.13
+# bbakggum DB 구조개편 설계안 V3.14
 
 | 항목 | 내용 |
 |-|-|
@@ -20,6 +20,7 @@
 | V3.5 | 2026-09-30 | **모든 출력물 = 사용자 엑셀 양식 등록 방식**, 출력 용도 **사용자 확장**(`print_purpose`), 양식 파일 **DB 버전 보관**, 치환자 사전(`print_field`), 출력 이력(`print_log`), **구현 시 주의사항**(§15: 스케줄·진행현황, 엑셀 양식 출력 — 기존 소스 분석), 기존 DB 보존 + 신규 구축 원칙 명시 |
 | V3.6 | 2026-09-30 | 양식 등록 방식 **2가지**: EXCEL(사용자 수정 양식) + **FIXED**(코드 고정 레이아웃 — 거래명세표 등 구 PrintDoc 7종, 레이아웃 옵션은 관리자 조정), **하드코딩 → 관리자 설정**(§15.4, `system_setting` 확장·초기값, 로직 참조 공통코드, 단말별 프린터 `workstation_print_setting`, 도장 이미지 DB 보관) |
 | V3.8 | 2026-09-30 | **1단계 기존 폼 분석 반영** (`docs/legacy_forms/`): 입고번호 = 스캔 수주번호(`order_item_no`), 수주 행 요구사항 Snapshot·우선순위·별도관리·고객 작업지시번호, 품목 단가 적용 구분(EA/KG/CHARGE), 설비당 투입 중 작업 1건, 한 LOT에 같은 수주 1회, 관리항목 템플릿(`step_template_condition`), 검사구분(입고/공정/출하)·재검사·**검사 결과 공통 적용**, 부적합 처리구분(재처리/출하/선별/보류/폐기/반송), 출하 시험편·거래처 Snapshot·전표 단위 마감 상태(미마감/마감/이월), 공통 첨부(`attachment`), 설정·공통코드 추가. 배정 병합 시 최대 작업시간, 지연 시 뒤 배정 계획시각 자동 이동 |
+| V3.14 | 2026-10-01 | **작업표준 입력표 가변식** (§2.1·§22.5, 구 `F_WorkStandardAddForm` 비교): 스텝(열)·관리항목(행)을 작업표준 Version 마다 직접 보관(`standard_version_step`·`standard_version_item`), 조건 = (스텝 순서, 항목). 단계 템플릿은 입력표 **초기값**(불러오기·"이 구성을 템플릿으로 저장"). `production_work_condition` 단계 키 = 스텝 순서(템플릿 id 참조 제거). 입력표에서 조건 항목 즉석 등록. 추가·수정 입력은 가운데 별도 창, 좌측 메뉴 단독 스크롤 |
 | V3.13 | 2026-09-30 | **5단계 기준정보** (§22, §12 확인 ⑧⑨): 단순 기준정보 14종 = 정의 기반 범용 API·화면(정의 ↔ DDL 대조 테스트), 사용자·역할 권한 관리, 품목(거래처 품번·공정·도면/이미지 첨부·성적서 양식 연결·이력), 공정 경로·단계 템플릿·작업표준(행렬·버전·복사), 검사기준(버전·항목·측정 위치). DDL: 메뉴 master.* 19개, 공통코드 `CUSTOMER_TYPE`·`DAY_TYPE`·`CONDITION_VALUE_TYPE`·`ATTACHMENT_KIND`·`RANGE_TYPE`, 설정 `file.max_attachment_mb`·`standard.code_format` |
 | V3.12 | 2026-09-30 | **4단계 ② 출력 엔진** (§21, §12 확인 4건): EXCEL(치환·반복행·이미지·구 좌표 키 호환 → 서버 LibreOffice PDF) / FIXED(거래명세표 렌더러 + 옵션), 양식 선택 단일 함수, 발행 이력·재발행, 양식 관리 화면. DDL: `print_template.is_default`(용도 기본 양식), `shipment.supply_amount`·`vat_amount`·`total_amount`(F2), 치환자 사전 초기 데이터(검사 대상·출하 전표), 메뉴 `system.print`, 고정 양식 글꼴 = 설치 이름 목록("굴림체", "맑은 고딕"), 거래명세표 여백 20 |
 | V3.11 | 2026-09-30 | **4단계 ① 스케줄 서비스 + Gantt** (§20, §7 규칙 구체화, §12 확인 3건): 계산 엔진·5단계 작업시간·설비 잠금·지연 반영 재계산·구 SP 실제 실행 비교. DDL: `production_schedule.duration_source`, 공통코드 `SCHEDULE_STATUS`·`RUNNING_TIME_SOURCE`, 설정 `schedule.board_days`, 메뉴 `production.schedule` |
@@ -105,8 +106,10 @@
 [조건 항목]      condition_item              온도(℃), 시간(min), CP(%), RX, NH3 …
 
 [작업표준]       standard (품목 × 단위공정 × 설비유형/설비 × 공정 [× 업체])  ← t_standard
-                   └ standard_version        charge 수량, 표준 작업시간, 적용 단계 템플릿
-                       └ standard_condition  항목 × 단계 = 값                      ← t_standarddetail
+                   └ standard_version        charge 수량, 표준 작업시간, 불러온 템플릿(참고)
+                       ├ standard_version_step  스텝(열) 이름·순서 — Version 마다 자유   ← t_standarddetail "스텝" 행
+                       ├ standard_version_item  관리항목(행)·순서                         ← t_standarddetail.item
+                       └ standard_condition     항목 × [공통 + 스텝 순서] = 값            ← t_standarddetail step1~15
 
 [확정 조건]      production_work (작업 LOT) — standard_version_id, is_standard_fixed
                    └ production_work_condition  항목 × 단계 = 설정값/실적값  ← t_conditiontemplate + t_workconditiondetail
@@ -114,6 +117,7 @@
 
 - 조건은 고정 컬럼이 아니라 **항목 × 단계 행렬**로 저장한다. 설비 유형마다 항목이 달라도(가스로 CP, 진공로 압력 등) 테이블을 바꿀 필요가 없다.
 - 단계와 무관한 LOT 공통 조건(예: 장입량)은 단계를 NULL로 둔다.
+- **입력표는 가변식** (구 `F_WorkStandardAddForm`): 스텝·관리항목을 작업표준 화면에서 바로 추가·이름 변경·삭제·이동한다. 단계 템플릿은 표를 처음 채우는 초기값일 뿐이라 템플릿을 고쳐도 기존 표준·LOT 조건은 바뀌지 않는다 (§22.5).
 
 ## 2.2 투입 시 표준 확정 (기존 Gas 폼 `FixStandard`)
 
@@ -306,13 +310,13 @@ print_log                                발행 이력 (양식 버전, 대상, �
 
 ---
 
-# 8. 테이블 카탈로그 (77 테이블 + 5 VIEW)
+# 8. 테이블 카탈로그 (79 테이블 + 5 VIEW)
 
 | 영역 | 테이블 |
 |-|-|
 | 시스템/공통 (14) | company, common_code_group, common_code, system_setting, department, job_position, employee, app_user, role, app_user_role, menu, role_menu, audit_log, migration_id_map |
 | 기준정보 (11) | customer, equipment_type, equipment, equipment_history, instrument, part, part_customer, part_history, defect_reason, work_shift, work_calendar |
-| 공정/표준/검사기준 (18) | unit_process, process_default_time, heat_process, heat_process_version, heat_process_operation, step_template, step_template_item, condition_item, standard, standard_version, standard_condition, inspection_standard, inspection_standard_version, inspection_criteria, inspection_criteria_point, unit_inspection_item, part_heat_process, step_template_condition |
+| 공정/표준/검사기준 (20) | unit_process, process_default_time, heat_process, heat_process_version, heat_process_operation, step_template, step_template_item, condition_item, standard, standard_version, standard_version_step, standard_version_item, standard_condition, inspection_standard, inspection_standard_version, inspection_criteria, inspection_criteria_point, unit_inspection_item, part_heat_process, step_template_condition |
 | 출력 양식 (9) | print_data_source, print_field, print_purpose, print_template, print_template_version, part_print_template, print_log, workstation, workstation_print_setting |
 | 수주/계획/생산 (12) | sales_order, sales_order_item, production_input_queue, worker_assignment, production_schedule, production_schedule_item, schedule_board_layout, schedule_board_item, production_work, production_work_event, production_work_input, production_work_condition |
 | 검사/부적합/출하/설비 (13) | inspection, inspection_target, inspection_item, inspection_measurement, line_inspection, line_inspection_measurement, defect_occurrence, shipment_closing, shipment, shipment_item, equipment_downtime, maintenance, attachment |
@@ -359,7 +363,7 @@ print_log                                발행 이력 (양식 버전, 대상, �
 | 33 | t_schedulebox | schedule_board_layout, schedule_board_item | 한시 | UI 표시용 |
 | 34 | t_standard | standard, standard_version | 분해 | 품목·단위공정·설비(·업체) |
 | 35 | t_standard_gas | standard_condition | 통합 | 가스 항목 → condition_item |
-| 36 | t_standarddetail | standard_condition | 재설계 | item × step1~15 |
+| 36 | t_standarddetail | standard_version_step, standard_version_item, standard_condition | 재설계 | "스텝" 행 → step, item 행 → item, step1~15 값 → condition (step_no = 열 번호) |
 | 37 | t_standardtemplate | step_template, step_template_item | 분해 | 설비·단위공정별 단계 |
 | 38 | t_system_settings | system_setting | 변경 | |
 | 39 | t_templatefieldname | print_field (+ print_data_source) | 재설계 | 치환자 사전, 데이터 공급원별 |
@@ -973,12 +977,18 @@ POST /api/print/issue {purposeCode, sourceId, printTemplateId?}
 | 화면 (권한) | API | 규칙 |
 |-|-|-|
 | 공정 경로 (`master.heat_process`) | `/api/heat-processes` (`PUT …/route` = 경로 저장) | 경로 = 단위공정 순서 + 주공정(최대 1) + 필수 여부. **현재 Version을 수주 품목·작업 LOT이 쓰면 새 Version**, 아니면 현재 Version 수정. 목록에 경로 요약(`세척 > 침탄* > 템퍼링`) |
-| 단계 템플릿 (`master.step_template`) | `/api/step-templates` | 단위공정 × 설비유형(또는 설비) × 단계(열) × 관리항목(행). 단계는 **id 유지한 채 이름·순서 변경**(임시 순번 → 재부여, 한 트랜잭션). 작업표준·작업 조건이 쓰는 단계는 삭제 불가(`STEP_IN_USE`). 표준이 쓰는 템플릿은 단위공정 변경 불가 |
-| 작업표준 (`master.standard`) | `/api/standards` (`POST …/versions` = 새 Version) | 키 = 품목 × 단위공정 × 설비유형/설비 × 거래처 × 공정, 같은 키는 1개(`DUPLICATE_STANDARD` + 기존 id). 코드 = 설정 `standard.code_format`. **저장할 때마다 새 Version** (구 "새 행 INSERT" 방식 유지). 조건 = 관리항목 × [공통 + 단계] 행렬, 숫자 항목 검증, 빈 칸은 저장 안 함. 다른 품목 표준에서 복사, 과거 Version 보기 |
+| 단계 템플릿 (`master.step_template`) | `/api/step-templates` | 단위공정 × 설비유형(또는 설비)별 **입력표 초기값** = 스텝(열) + 관리항목(행). 편집은 작업표준과 같은 입력표 편집기. 참조하는 곳이 없으므로 저장 = 통째로 다시 씀 (스텝 삭제·단위공정 변경 자유) |
+| 작업표준 (`master.standard`) | `/api/standards` (`POST …/versions` = 새 Version) | 키 = 품목 × 단위공정 × 설비유형/설비 × 거래처 × 공정, 같은 키는 1개(`DUPLICATE_STANDARD` + 기존 id). 코드 = 설정 `standard.code_format`. **저장할 때마다 새 Version** (구 "새 행 INSERT" 방식 유지). **입력표 = Version 이 가진 스텝·관리항목** (가변식, 아래). 숫자 항목 검증, 빈 칸은 저장 안 함. 템플릿 불러오기·템플릿으로 저장, 다른 품목 표준에서 복사, 과거 Version 보기 |
 
 - **Version 시작 시각:** DB DATETIME은 소수초를 버리므로 같은 초에 연달아 저장하면 이전 종료 = 이전 시작이 되어 CHECK(`effective_to > effective_from`)에 걸린다 → 시작 = max(현재 초, 이전 시작 + 1초) (`VersionClock`, 테스트에서 발견).
 - 검증을 먼저, 이전 Version 종료는 나중 (잘못된 입력이 이전 Version을 닫지 않게).
-- 템플릿에 없는데 값이 있는 관리항목(템플릿 변경·이관 자료)도 행렬에 "템플릿 외"로 표시해 값이 사라지지 않게 한다.
+- **가변식 입력표 (V3.14, 구 `F_WorkStandardAddForm` 비교)** — 구 폼은 첫 행 "스텝"에 스텝 이름을 적고 `Item` 칸에 관리항목을 자유 입력했으며(행 삽입·삭제·이동), 템플릿(`t_standardtemplate`)은 조건 선택 시 표를 채우는 초기값이었다 (`F_WorkStandardAddForm.cs` 114~199·548~649행, 템플릿이 없으면 저장 시 자동 저장 692~703행). 신규도 같은 방식:
+  - 스텝(열): 표 머리에서 이름 입력, [+ 스텝], ←→ 이동, 삭제 (값이 있으면 확인). 개수 제한 없음 (구 15개).
+  - 관리항목(행): 조건 항목에서 검색해 추가, 없으면 그 자리에서 새로 등록(`master.condition_item` 생성 권한). ↑↓ 이동, 삭제. 문자열 자유 입력 대신 항목 id — 오타로 같은 항목이 둘로 갈리지 않게.
+  - 저장: `steps[]`(이름, 순서 = 열) · `items[]`(항목 id, 순서 = 행) · `conditions[]`(`stepNo` = 열 번호 1..N, null = 공통). 행에 없는 항목·없는 스텝 번호의 값은 거부.
+  - 템플릿 불러오기: 템플릿의 스텝·항목으로 표를 바꾸고, 이미 적은 값은 (스텝 이름, 항목)이 같으면 유지 (구 `LoadDetailsWithLatestTemplate`). 자동 템플릿 저장 대신 **"이 구성을 템플릿으로 저장"** 버튼 (선택).
+  - LOT 조건(`production_work_condition`)도 단계 키 = 스텝 순서 + 이름 Snapshot (6단계 투입 시 표준에서 복사).
+- 편집 중 폼은 서버 자료 **내용이 바뀔 때만** 새로 만든다 (`useDataVersion`) — 실시간 재접속 시 전체 재조회로 입력 중 값이 사라지던 문제 (V3.14 에서 발견, 품목·검사기준 편집 창도 같이 수정).
 
 ## 22.6 검사기준 (5-④)
 
@@ -987,3 +997,4 @@ POST /api/print/issue {purposeCode, sourceId, printTemplateId?}
 - 항목: 유형(공통코드 `INSPECTION_ITEM_TYPE` → 성적서 T/C 좌표 키 접두어), 항목·위치·요구사항(성적서 표기)·측정기·시험값·스케일·단위, **판정 방식**(공통코드 `RANGE_TYPE`: 범위/하한 이상/상한 이하/기록만 — 속성으로 하한·상한 필요 여부), 하한·상한, 시료수·시험수, 측정 위치 목록(구 P1~P10 → 개수 제한 없음 행).
 - 검증은 행별 오류를 모아 400 (하한·상한 필요, 하한 > 상한, 시료수 ≥ 1 …).
 - **이관 주의 (8단계):** 구 `t_inspectioncriteria.itemtype`은 `"0"~"5"` 또는 이름 — `INSPECTION_ITEM_TYPE` 코드로 변환해야 한다. 변환 안 된 값은 화면에서 붉게 "'경도' → 다시 선택"으로 표시되고 저장 시 거부된다.
+

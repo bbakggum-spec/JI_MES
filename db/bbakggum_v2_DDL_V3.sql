@@ -545,7 +545,7 @@ CREATE TABLE step_template (
         FOREIGN KEY (equipment_type_id) REFERENCES equipment_type (equipment_type_id),
     CONSTRAINT fk_step_template_equipment
         FOREIGN KEY (equipment_id) REFERENCES equipment (equipment_id)
-) ENGINE=InnoDB COMMENT='설비·단위공정별 템플릿 헤더 (t_standardtemplate) — 단계(column)는 step_template_item, 관리항목(row)은 step_template_condition';
+) ENGINE=InnoDB COMMENT='설비·단위공정별 템플릿 헤더 (t_standardtemplate) — 단계(column)는 step_template_item, 관리항목(row)은 step_template_condition. 작업표준 입력표의 초기값 (표준은 스텝·항목을 따로 가짐)';
 
 CREATE TABLE step_template_item (
     step_template_item_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -627,7 +627,7 @@ CREATE TABLE standard_version (
     standard_version_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     standard_id         BIGINT UNSIGNED NOT NULL,
     version_no          INT          NOT NULL,
-    step_template_id    BIGINT UNSIGNED NULL COMMENT '적용 단계 템플릿',
+    step_template_id    BIGINT UNSIGNED NULL COMMENT '입력표를 불러온 단계 템플릿 (참고) — 스텝·항목은 standard_version_step/_item',
     charge_qty          DECIMAL(14,3) NOT NULL DEFAULT 0 COMMENT '1 charge 투입 기준수량',
     charge_unit         VARCHAR(20)  NOT NULL DEFAULT 'charge',
     running_time_min    DECIMAL(10,2) NULL COMMENT '표준 작업시간 (스케줄 계산 기본값)',
@@ -648,24 +648,52 @@ CREATE TABLE standard_version (
         CHECK (effective_to IS NULL OR effective_to > effective_from)
 ) ENGINE=InnoDB COMMENT='작업표준 Version (확정 후 수정 금지)';
 
+-- 작업표준 입력표는 Version 마다 스텝(열)·관리항목(행)을 직접 가진다 (구 F_WorkStandardAddForm 가변 그리드, §22.5).
+-- 단계 템플릿은 표를 처음 채우는 초기값일 뿐 — 템플릿을 고쳐도 기존 표준의 스텝 이름은 바뀌지 않는다.
+CREATE TABLE standard_version_step (
+    standard_version_step_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    standard_version_id BIGINT UNSIGNED NOT NULL,
+    sequence_no         INT          NOT NULL COMMENT '열 순서 1..N (구 Step1~15, 개수 제한 없음)',
+    step_name           VARCHAR(100) NOT NULL COMMENT '예: 승온, 균열, 침탄 — 구 "스텝" 행',
+    PRIMARY KEY (standard_version_step_id),
+    UNIQUE KEY uk_standard_version_step (standard_version_id, sequence_no),
+    CONSTRAINT fk_standard_version_step_version
+        FOREIGN KEY (standard_version_id) REFERENCES standard_version (standard_version_id)
+) ENGINE=InnoDB COMMENT='작업표준 Version 의 스텝(열) — 구 t_standarddetail "스텝" 행';
+
+CREATE TABLE standard_version_item (
+    standard_version_item_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    standard_version_id BIGINT UNSIGNED NOT NULL,
+    sequence_no         INT          NOT NULL COMMENT '행 순서',
+    condition_item_id   BIGINT UNSIGNED NOT NULL,
+    PRIMARY KEY (standard_version_item_id),
+    UNIQUE KEY uk_standard_version_item_seq (standard_version_id, sequence_no),
+    UNIQUE KEY uk_standard_version_item (standard_version_id, condition_item_id),
+    KEY ix_standard_version_item_item (condition_item_id),
+    CONSTRAINT fk_standard_version_item_version
+        FOREIGN KEY (standard_version_id) REFERENCES standard_version (standard_version_id),
+    CONSTRAINT fk_standard_version_item_item
+        FOREIGN KEY (condition_item_id) REFERENCES condition_item (condition_item_id)
+) ENGINE=InnoDB COMMENT='작업표준 Version 의 관리항목(행) — 구 t_standarddetail.item (값 없는 행도 유지)';
+
 CREATE TABLE standard_condition (
     standard_condition_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     standard_version_id BIGINT UNSIGNED NOT NULL,
-    step_template_item_id BIGINT UNSIGNED NULL COMMENT 'NULL = 단계 무관 항목 (LOT 공통 조건)',
+    step_no             INT          NULL COMMENT 'standard_version_step.sequence_no — NULL = 단계 무관 항목 (LOT 공통 조건)',
     condition_item_id   BIGINT UNSIGNED NOT NULL,
     condition_value     VARCHAR(100) NULL,
-    step_key            BIGINT UNSIGNED AS (IFNULL(step_template_item_id, 0)) PERSISTENT,
+    step_key            INT AS (IFNULL(step_no, 0)) PERSISTENT,
     PRIMARY KEY (standard_condition_id),
     UNIQUE KEY uk_standard_condition (standard_version_id, step_key, condition_item_id),
-    KEY ix_standard_condition_step (step_template_item_id),
-    KEY ix_standard_condition_item (condition_item_id),
+    KEY ix_standard_condition_step (standard_version_id, step_no),
+    KEY ix_standard_condition_item (standard_version_id, condition_item_id),
     CONSTRAINT fk_standard_condition_version
         FOREIGN KEY (standard_version_id) REFERENCES standard_version (standard_version_id),
     CONSTRAINT fk_standard_condition_step
-        FOREIGN KEY (step_template_item_id) REFERENCES step_template_item (step_template_item_id),
-    CONSTRAINT fk_standard_condition_item
-        FOREIGN KEY (condition_item_id) REFERENCES condition_item (condition_item_id)
-) ENGINE=InnoDB COMMENT='작업표준 조건값 = 항목 × 단계 (t_standarddetail item × step1~15)';
+        FOREIGN KEY (standard_version_id, step_no) REFERENCES standard_version_step (standard_version_id, sequence_no),
+    CONSTRAINT fk_standard_condition_row
+        FOREIGN KEY (standard_version_id, condition_item_id) REFERENCES standard_version_item (standard_version_id, condition_item_id)
+) ENGINE=InnoDB COMMENT='작업표준 조건값 = 관리항목(행) × [공통 + 스텝(열)] (t_standarddetail item × step1~15)';
 
 -- ---------------------------------------------------------------------
 -- 3.1 검사 기준 (품목·업체별)
@@ -1329,21 +1357,17 @@ CREATE TABLE production_work_input (
 CREATE TABLE production_work_condition (
     production_work_condition_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     production_work_id  BIGINT UNSIGNED NOT NULL,
-    step_template_item_id BIGINT UNSIGNED NULL COMMENT 'NULL = 단계 무관 LOT 공통 조건',
     condition_item_id   BIGINT UNSIGNED NOT NULL,
-    step_sequence_no    INT          NULL COMMENT '확정 당시 단계 순서 (Snapshot)',
-    step_name_snapshot  VARCHAR(100) NULL,
+    step_sequence_no    INT          NULL COMMENT '단계 순서 (표준 standard_version_step 에서 복사) — NULL = 단계 무관 LOT 공통 조건',
+    step_name_snapshot  VARCHAR(100) NULL COMMENT '단계 이름 (복사 당시)',
     set_value           VARCHAR(100) NULL COMMENT '확정 조건값 (선택 표준에서 복사, 작업자 수정 가능)',
     actual_value        VARCHAR(100) NULL COMMENT '실측/실적값 (선택)',
-    step_key            BIGINT UNSIGNED AS (IFNULL(step_template_item_id, 0)) PERSISTENT,
+    step_key            INT AS (IFNULL(step_sequence_no, 0)) PERSISTENT,
     PRIMARY KEY (production_work_condition_id),
     UNIQUE KEY uk_production_work_condition (production_work_id, step_key, condition_item_id),
-    KEY ix_production_work_condition_step (step_template_item_id),
     KEY ix_production_work_condition_item (condition_item_id),
     CONSTRAINT fk_production_work_condition_work
         FOREIGN KEY (production_work_id) REFERENCES production_work (production_work_id),
-    CONSTRAINT fk_production_work_condition_step
-        FOREIGN KEY (step_template_item_id) REFERENCES step_template_item (step_template_item_id),
     CONSTRAINT fk_production_work_condition_item
         FOREIGN KEY (condition_item_id) REFERENCES condition_item (condition_item_id)
 ) ENGINE=InnoDB COMMENT='작업 LOT 확정 조건 = 항목 × 단계 (t_conditiontemplate + t_workconditiondetail)';

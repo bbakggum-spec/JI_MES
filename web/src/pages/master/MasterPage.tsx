@@ -1,9 +1,10 @@
 import { DeleteOutlined, PlusOutlined, UploadOutlined } from '@ant-design/icons'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  App, Button, DatePicker, Drawer, Form, Image, Input, InputNumber, Popconfirm, Result, Select, Space, Spin, Switch,
+  App, Button, DatePicker, Form, Image, Input, InputNumber, Popconfirm, Result, Select, Space, Spin, Switch,
   Table, Tag, TimePicker, Typography, Upload,
 } from 'antd'
+import EditorWindow from '../../components/EditorWindow'
 import type { ColumnsType } from 'antd/es/table'
 import dayjs from 'dayjs'
 import { useState } from 'react'
@@ -110,7 +111,7 @@ export default function MasterPage({ menuKey }: PageProps) {
           showTotal: (t) => `${t.toLocaleString()}건`, onChange: setPage,
         }} />
       {editing && (
-        <EditDrawer meta={m} entity={entity} row={editing === 'new' ? null : editing} readOnly={editing === 'new' ? !canCreate : !canUpdate}
+        <EditWindow meta={m} entity={entity} row={editing === 'new' ? null : editing} readOnly={editing === 'new' ? !canCreate : !canUpdate}
           onClose={() => setEditing(null)}
           onSaved={() => { setEditing(null); void queryClient.invalidateQueries({ queryKey: baseKey }) }} />
       )}
@@ -130,7 +131,7 @@ function display(f: MasterField, row: MasterRow, codes: ReturnType<typeof useCom
   }
 }
 
-function EditDrawer({ meta, entity, row, readOnly, onClose, onSaved }: {
+function EditWindow({ meta, entity, row, readOnly, onClose, onSaved }: {
   meta: MasterMeta
   entity: string
   row: MasterRow | null
@@ -178,7 +179,7 @@ function EditDrawer({ meta, entity, row, readOnly, onClose, onSaved }: {
   }
 
   return (
-    <Drawer open onClose={onClose} size="large" title={isNew ? `${meta.label} 추가` : `${meta.label} — ${String(row[meta.fields[1]?.name] ?? row.id)}`}
+    <EditorWindow onClose={onClose} size="large" title={isNew ? `${meta.label} 추가` : `${meta.label} — ${String(row[meta.fields[1]?.name] ?? row.id)}`}
       extra={!readOnly && <Button type="primary" loading={saving} onClick={() => void save()}>저장</Button>}>
       <Form form={form} layout="vertical" initialValues={initial} disabled={readOnly}>
         {meta.fields.map((f) => (
@@ -197,7 +198,7 @@ function EditDrawer({ meta, entity, row, readOnly, onClose, onSaved }: {
       {!isNew && meta.images.map((img) => (
         <ImageField key={img.name} entity={entity} id={row.id} image={img} readOnly={readOnly} hasImage={Boolean(row[`has_${img.name}`])} />
       ))}
-    </Drawer>
+    </EditorWindow>
   )
 }
 

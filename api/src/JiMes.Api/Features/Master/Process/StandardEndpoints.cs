@@ -53,17 +53,40 @@ public sealed class StandardVersionDto
     public long UsageCount { get; init; }
 }
 
+/// <summary>입력표의 스텝(열) — Version 마다 따로 (구 "스텝" 행)</summary>
+public sealed class StandardStepDto
+{
+    public int SequenceNo { get; init; }
+    public string StepName { get; init; } = "";
+}
+
+/// <summary>입력표의 관리항목(행)</summary>
+public sealed class StandardItemDto
+{
+    public int SequenceNo { get; init; }
+    public long ConditionItemId { get; init; }
+    public string ConditionItemName { get; init; } = "";
+    public string? UnitCode { get; init; }
+    public string ValueType { get; init; } = "NUMBER";
+    public bool IsActive { get; init; }
+}
+
 public sealed class ConditionValueDto
 {
-    public long? StepTemplateItemId { get; init; }
+    /// <summary>스텝 순서 (1..N) — null = 공통 (단계 무관)</summary>
+    public int? StepNo { get; init; }
     public long ConditionItemId { get; init; }
     public string? ConditionValue { get; init; }
 }
 
-public sealed record ConditionInput(long? StepTemplateItemId, long ConditionItemId, string? ConditionValue);
+public sealed record ConditionInput(int? StepNo, long ConditionItemId, string? ConditionValue);
 
+/// <param name="StepTemplateId">입력표를 불러온 템플릿 (참고용, 선택)</param>
+/// <param name="Steps">스텝 이름 — 순서 = 열 순서</param>
+/// <param name="Items">관리항목 id — 순서 = 행 순서</param>
 public sealed record StandardVersionInput(
-    long? StepTemplateId, decimal ChargeQty, string? ChargeUnit, decimal? RunningTimeMin, string? Remark, ConditionInput[]? Conditions);
+    long? StepTemplateId, decimal ChargeQty, string? ChargeUnit, decimal? RunningTimeMin, string? Remark,
+    string[]? Steps, long[]? Items, ConditionInput[]? Conditions);
 
 public sealed record StandardCreateRequest(
     long PartId, long? CustomerId, long? HeatProcessId, long UnitProcessId, long? EquipmentTypeId, long? EquipmentId,
@@ -72,7 +95,8 @@ public sealed record StandardCreateRequest(
 public sealed record StandardUpdateRequest(string? StandardName, bool IsActive);
 
 /// <summary>
-/// 작업표준 (구 F_WorkStandardAddForm) — 품목 × 단위공정 × 설비(유형) × (거래처·공정). 조건 = 관리항목 × [공통 + 단계] 행렬.
+/// 작업표준 (구 F_WorkStandardAddForm) — 품목 × 단위공정 × 설비(유형) × (거래처·공정). 조건 = 관리항목 × [공통 + 스텝] 행렬.
+/// 스텝·관리항목은 Version 마다 자유롭게 추가·삭제·이동 (구 가변 그리드). 단계 템플릿은 표를 처음 채우는 초기값.
 /// 저장할 때마다 새 Version (구 "새 행 INSERT, 기존 보존"과 같음, §1.3·T2). 작업 LOT 이 쓴 Version 은 그대로 남는다.
 /// 설비 "All" 복사 대신 설비 유형 지정 = 유형 공통 (T3). 작업시간 단위 = 분 (T6).
 /// </summary>
@@ -137,11 +161,20 @@ public static class StandardEndpoints
             """, new { id })).ToList();
         var version = versionId is null ? versions.FirstOrDefault(v => v.IsCurrent) : versions.FirstOrDefault(v => v.StandardVersionId == versionId)
             ?? throw new NotFoundException("standard_version", versionId.Value);
-        var template = version?.StepTemplateId is { } tid ? await StepTemplateEndpoints.DetailAsync(conn, null, tid) : null;
-        var conditions = version is null ? [] : (await conn.QueryAsync<ConditionValueDto>(
-            "SELECT step_template_item_id, condition_item_id, condition_value FROM standard_condition WHERE standard_version_id = @Id",
-            new { Id = version.StandardVersionId })).ToList();
-        return Results.Ok(new { header, versions, version, template, conditions });
+        if (version is null)
+            return Results.Ok(new { header, versions, version, steps = Array.Empty<object>(), items = Array.Empty<object>(), conditions = Array.Empty<object>() });
+        var args = new { Id = version.StandardVersionId };
+        var steps = await conn.QueryAsync<StandardStepDto>(
+            "SELECT sequence_no, step_name FROM standard_version_step WHERE standard_version_id = @Id ORDER BY sequence_no", args);
+        var items = await conn.QueryAsync<StandardItemDto>(
+            """
+            SELECT i.sequence_no, i.condition_item_id, ci.condition_item_name, ci.unit_code, ci.value_type, ci.is_active
+              FROM standard_version_item i JOIN condition_item ci ON ci.condition_item_id = i.condition_item_id
+             WHERE i.standard_version_id = @Id ORDER BY i.sequence_no
+            """, args);
+        var conditions = await conn.QueryAsync<ConditionValueDto>(
+            "SELECT step_no, condition_item_id, condition_value FROM standard_condition WHERE standard_version_id = @Id", args);
+        return Results.Ok(new { header, versions, version, steps, items, conditions });
     }
 
     private static async Task<IResult> CreateAsync(StandardCreateRequest r, IDbConnectionFactory db, AuditWriter audit, SettingsCache settings,
@@ -231,31 +264,36 @@ public static class StandardEndpoints
         var chargeUnit = string.IsNullOrWhiteSpace(r.ChargeUnit) ? "charge" : r.ChargeUnit.Trim();
         if (chargeUnit.Length > 20) errors["chargeUnit"] = ["20자 이하여야 합니다."];
 
-        HashSet<long> stepIds = [];
         if (r.StepTemplateId is { } templateId)
         {
             var template = await StepTemplateEndpoints.DetailAsync(conn, tx, templateId);
             if (template is null) errors["stepTemplateId"] = ["없는 단계 템플릿입니다."];
             else if (template.Header.UnitProcessId != unitProcessId) errors["stepTemplateId"] = ["작업표준과 단위공정이 다른 템플릿입니다."];
-            else stepIds = template.Steps.Select(s => s.StepTemplateItemId).ToHashSet();
         }
 
-        var conditions = (r.Conditions ?? []).Where(c => !string.IsNullOrWhiteSpace(c.ConditionValue)).ToList();
-        var items = conditions.Count == 0 ? new Dictionary<long, string>() : (await conn.QueryAsync<(long Id, string ValueType)>(
+        // 입력표 구성: 스텝(열) 이름, 관리항목(행) — 개수 제한 없음
+        var steps = (r.Steps ?? []).Select(s => s?.Trim() ?? "").ToList();
+        if (steps.Any(s => s.Length is 0 or > 100)) errors["steps"] = ["스텝 이름은 1~100자여야 합니다."];
+        var rowIds = (r.Items ?? []).ToList();
+        if (rowIds.Distinct().Count() != rowIds.Count) errors["items"] = ["같은 관리항목이 두 번 있습니다."];
+        var items = rowIds.Count == 0 ? new Dictionary<long, string>() : (await conn.QueryAsync<(long Id, string ValueType)>(
                 "SELECT CAST(condition_item_id AS SIGNED), value_type FROM condition_item WHERE condition_item_id IN @ids",
-                new { ids = conditions.Select(c => c.ConditionItemId).Distinct().ToArray() }, tx))
+                new { ids = rowIds.Distinct().ToArray() }, tx))
             .ToDictionary(x => x.Id, x => x.ValueType);
+        if (rowIds.Any(id => !items.ContainsKey(id))) errors["items"] = ["없는 조건 항목이 있습니다."];
+
+        var conditions = (r.Conditions ?? []).Where(c => !string.IsNullOrWhiteSpace(c.ConditionValue)).ToList();
         foreach (var c in conditions)
         {
             var value = c.ConditionValue!.Trim();
-            if (!items.TryGetValue(c.ConditionItemId, out var valueType)) errors["conditions"] = ["없는 조건 항목이 있습니다."];
-            else if (c.StepTemplateItemId is { } step && !stepIds.Contains(step)) errors["conditions"] = ["템플릿에 없는 단계가 있습니다."];
+            if (!items.TryGetValue(c.ConditionItemId, out var valueType)) errors["conditions"] = ["입력표 행에 없는 관리항목의 값이 있습니다."];
+            else if (c.StepNo is { } step && (step < 1 || step > steps.Count)) errors["conditions"] = ["입력표에 없는 스텝의 값이 있습니다."];
             else if (value.Length > 100) errors["conditions"] = ["조건값은 100자 이하여야 합니다."];
             else if (valueType == "NUMBER" && !decimal.TryParse(value, NumberStyles.Number, CultureInfo.InvariantCulture, out _))
                 errors["conditions"] = [$"숫자 항목에 숫자가 아닌 값이 있습니다: '{value}'"];
         }
-        if (conditions.GroupBy(c => (c.StepTemplateItemId, c.ConditionItemId)).Any(g => g.Count() > 1))
-            errors["conditions"] = ["같은 단계·항목이 두 번 있습니다."];
+        if (conditions.GroupBy(c => (c.StepNo, c.ConditionItemId)).Any(g => g.Count() > 1))
+            errors["conditions"] = ["같은 스텝·항목이 두 번 있습니다."];
         if (errors.Count > 0) throw new RequestValidationException(errors);
 
         var versionNo = await conn.ExecuteScalarAsync<int>("SELECT COALESCE(MAX(version_no), 0) + 1 FROM standard_version WHERE standard_id = @standardId", new { standardId }, tx);
@@ -264,10 +302,16 @@ public static class StandardEndpoints
             INSERT INTO standard_version (standard_id, version_no, step_template_id, charge_qty, charge_unit, running_time_min, effective_from, is_current, remark, created_by)
             VALUES (@standardId, @versionNo, @StepTemplateId, @ChargeQty, @chargeUnit, @RunningTimeMin, @now, @isCurrent, @remark, @userId); SELECT LAST_INSERT_ID();
             """, new { standardId, versionNo, r.StepTemplateId, r.ChargeQty, chargeUnit, r.RunningTimeMin, now, isCurrent, remark = r.Remark?.Trim(), userId }, tx);
+        for (var i = 0; i < steps.Count; i++)
+            await conn.ExecuteAsync("INSERT INTO standard_version_step (standard_version_id, sequence_no, step_name) VALUES (@versionId, @seq, @name)",
+                new { versionId, seq = i + 1, name = steps[i] }, tx);
+        for (var i = 0; i < rowIds.Count; i++)
+            await conn.ExecuteAsync("INSERT INTO standard_version_item (standard_version_id, sequence_no, condition_item_id) VALUES (@versionId, @seq, @id)",
+                new { versionId, seq = i + 1, id = rowIds[i] }, tx);
         foreach (var c in conditions)
             await conn.ExecuteAsync(
-                "INSERT INTO standard_condition (standard_version_id, step_template_item_id, condition_item_id, condition_value) VALUES (@versionId, @StepTemplateItemId, @ConditionItemId, @value)",
-                new { versionId, c.StepTemplateItemId, c.ConditionItemId, value = c.ConditionValue!.Trim() }, tx);
+                "INSERT INTO standard_condition (standard_version_id, step_no, condition_item_id, condition_value) VALUES (@versionId, @StepNo, @ConditionItemId, @value)",
+                new { versionId, c.StepNo, c.ConditionItemId, value = c.ConditionValue!.Trim() }, tx);
         return (versionNo, versionId);
     }
 
