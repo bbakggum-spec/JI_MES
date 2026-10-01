@@ -2064,6 +2064,7 @@ INSERT INTO system_setting (setting_key, category, setting_name, value_type, def
  ('print.keep_issued_output',         '출력',   '발행본 PDF 보관 용도',              'JSON',    '["INSPECTION_REPORT"]', NULL, NULL, NULL, 'print_log.output_content 저장 대상 용도 코드', 0, 40),
  ('file.storage_root',                '파일',   '첨부 파일 저장 위치 (서버)',        'PATH',    'D:\\MES\\Files', NULL, NULL, NULL, '조직사진·경화층 차트 등 — 구 BaseDirectory\\Files 하위 (PC별)', 1, 10),
  ('file.max_attachment_mb',           '파일',   '첨부 파일 최대 크기',               'INT',     '20',    1, 200, 'MB', '도면·이미지 등 attachment 1건 — DB max_allowed_packet 이하', 0, 20),
+ ('dashboard.trend_days',             '시스템', '대시보드 추이 기간',                'INT',     '14',    1, 92, '일', '일별 입고·출하 금액, 부적합 건수 (구 F_DashForm)', 0, 60),
  ('log.retention_days',               '시스템', '로그 보관 일수',                    'INT',     '7',     1, 365, '일', '구 AppLogger 7일', 1, 10),
  ('work.complete_time_round_min',     '생산',   '완료시각 단위 (내림)',              'INT',     '5',     1, 60, '분', '구 RoundToNearest5Minutes (실제 동작은 내림)', 0, 10),
  ('sales_order.number_format',        '영업',   '수주 묶음 번호 형식',               'STRING',  'SO{yyMMdd}-{SEQ:000}', NULL, NULL, NULL, '한 번에 등록한 입고 행들의 묶음 (구는 묶음 없음)', 0, 25),

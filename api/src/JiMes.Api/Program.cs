@@ -105,6 +105,7 @@ services.AddScoped<ShipmentService>();
 services.AddScoped<ClosingService>();
 services.AddScoped<LotReportService>();
 services.AddScoped<OrderReportService>();
+services.AddScoped<DashboardService>();
 services.AddHostedService<ScheduleDelayMonitor>();
 
 // 출력 (EXCEL / FIXED, §5.3). QuestPDF 라이선스는 설정으로 명시 (구 WinForms 와 같은 Community — 적용 조건은 설계 §12 확인)
