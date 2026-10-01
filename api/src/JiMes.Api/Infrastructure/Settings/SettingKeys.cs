@@ -30,6 +30,8 @@ public static class SettingKeys
     public const string SalesOrderItemNumberFormat = "sales_order.item_number_format";
     public const string SalesOrderListDefaultDays = "sales_order.list_default_days";
     public const string InspectionNumberFormat = "inspection.number_format";
+    public const string ShipmentNumberFormat = "shipment.number_format";
+    public const string ClosingNumberFormat = "shipment_closing.number_format";
 
     /// <summary>
     /// 로그인 사용자 누구나 읽을 수 있는 설정 (GET /api/client-settings). 웹 화면 동작에 필요한 값만 둔다.

@@ -10,6 +10,8 @@ namespace JiMes.Api.Infrastructure.Security;
 public static class MenuKeys
 {
     public const string SalesOrder = "sales.order";
+    public const string SalesShipment = "sales.shipment";
+    public const string SalesClosing = "sales.closing";
     public const string ProductionSchedule = "production.schedule";
     public const string ProductionWork = "production.work";
     public const string QualityInspection = "quality.inspection";

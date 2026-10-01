@@ -1,4 +1,4 @@
-# bbakggum DB 구조개편 설계안 V3.19
+# bbakggum DB 구조개편 설계안 V3.20
 
 | 항목 | 내용 |
 |-|-|
@@ -20,6 +20,7 @@
 | V3.5 | 2026-09-30 | **모든 출력물 = 사용자 엑셀 양식 등록 방식**, 출력 용도 **사용자 확장**(`print_purpose`), 양식 파일 **DB 버전 보관**, 치환자 사전(`print_field`), 출력 이력(`print_log`), **구현 시 주의사항**(§15: 스케줄·진행현황, 엑셀 양식 출력 — 기존 소스 분석), 기존 DB 보존 + 신규 구축 원칙 명시 |
 | V3.6 | 2026-09-30 | 양식 등록 방식 **2가지**: EXCEL(사용자 수정 양식) + **FIXED**(코드 고정 레이아웃 — 거래명세표 등 구 PrintDoc 7종, 레이아웃 옵션은 관리자 조정), **하드코딩 → 관리자 설정**(§15.4, `system_setting` 확장·초기값, 로직 참조 공통코드, 단말별 프린터 `workstation_print_setting`, 도장 이미지 DB 보관) |
 | V3.8 | 2026-09-30 | **1단계 기존 폼 분석 반영** (`docs/legacy_forms/`): 입고번호 = 스캔 수주번호(`order_item_no`), 수주 행 요구사항 Snapshot·우선순위·별도관리·고객 작업지시번호, 품목 단가 적용 구분(EA/KG/CHARGE), 설비당 투입 중 작업 1건, 한 LOT에 같은 수주 1회, 관리항목 템플릿(`step_template_condition`), 검사구분(입고/공정/출하)·재검사·**검사 결과 공통 적용**, 부적합 처리구분(재처리/출하/선별/보류/폐기/반송), 출하 시험편·거래처 Snapshot·전표 단위 마감 상태(미마감/마감/이월), 공통 첨부(`attachment`), 설정·공통코드 추가. 배정 병합 시 최대 작업시간, 지연 시 뒤 배정 계획시각 자동 이동 |
+| V3.20 | 2026-10-01 | **6단계 ⑥ 출하·마감** (§23.7, 구 F_OutAddForm·F_OutForm·F_MonthlyClosing): 출하 재고 = 수주 × 주 LOT 출하 가능(부적합·특채·기출하·시험편 반영), 전표 등록·수정·취소, 단가 구분별 금액(EA/KG/CHARGE)·세액, 거래처 Snapshot, 거래명세표 발행(출하 화면 권한), 업체별 마감(기준일 = 마감일 말일 보정)·이월·마감 취소. 설정 `shipment_closing.number_format`, 공통코드 `CLOSING_STATUS` 색·`CLOSING_RUN_STATUS`, 메뉴 `sales.shipment`·`sales.closing`. **6단계 완료** |
 | V3.19 | 2026-10-01 | **6단계 ⑤ 부적합·재작업** (§23.6, 구 F_Defect·F_DefectAdd): 작업 화면 투입 행 불량 등록(양품 한도), 부적합 목록·판정(처리구분 `DEFECT_ACTION`)·완료·취소, 재처리 → 재작업 LOT(원 LOT 연결, 주공정이면 주 LOT = 자신) → 재작업 LOT 완료 시 부적합 자동 완료. DDL: `defect_occurrence.remark`, 공통코드 `DEFECT_STATUS`, 메뉴 `quality.defect` |
 | V3.18 | 2026-10-01 | **6단계 ④ 검사·성적서** (§23.5, 구 F_InspectionAddForm): LOT 입력 → 투입 행 중 대상 선택, 측정·판정 검사 공통(기준 범위 자동 판정 + 수동), 저장(미확정)·확정(불합격 → 대상마다 부적합 = 대상 수량)·재검사(새 번호)·취소, 대상별 성적서 발행(검사 화면 권한 — §12 ⑦ 해결). 공통코드 `INSPECTION_STATUS`, `DECISION` 색상·`NA`, 메뉴 `quality.inspection` |
 | V3.17 | 2026-10-01 | **6단계 ③ 투입·작업** (§23.4, 구 F_GasForm): 작업 화면(설비별 배정·진행 LOT), 즉시 작업, 입고번호/주 LOT 스캔 투입(주공정 전·주공정·주공정 후 단계, 잔량 = 수주 − 기투입 / 주 LOT 양품 − 기투입, 초과 차단), 투입(시작)·완료(설정 단위 내림), 표준 확정 → 조건 복사·수정. DDL: `production_work_condition.item_sequence_no`, 메뉴 `production.work` |
@@ -471,7 +472,7 @@ print_log                                발행 이력 (양식 버전, 대상, �
 | ④ | QuestPDF 라이선스 | 구 WinForms와 같은 Community (설정 `Print:QuestPdfLicense`) | Community는 연 매출 100만 달러 미만 기업 조건 — 해당 여부 확인. 아니면 Professional 구매 또는 다른 PDF 엔진 |
 | ⑤ | 업체 전용 거래명세표(EXCEL) | `part_print_template`는 품목 기준이라 전표(여러 품목)에는 연결 불가 → 용도 기본 양식 또는 발행 시 양식 지정 | 업체별 양식 연결(`customer_print_template` 등)이 필요한지 (§12 #5와 같은 질문) |
 | ⑥ | 거래명세표 행별 세액 | 금액 × 세율 반올림(표시용), 합계 세액은 전표 저장값 — 행 세액 합과 1원 단위로 다를 수 있음 (구 동일) | 행 세액 표시를 유지할지 |
-| ⑦ | 발행 권한 | **V3.18: 성적서는 검사 화면 권한(`quality.inspection` R) `POST /api/inspections/targets/{id}/report`** — `system.print` 는 양식 관리용 | 출하 전표는 6-⑥에서 같은 방식 |
+| ⑦ | 발행 권한 | **V3.18: 성적서는 검사 화면 권한(`quality.inspection` R) `POST /api/inspections/targets/{id}/report`** — `system.print` 는 양식 관리용 | V3.20: 거래명세표도 출하 화면 권한(`sales.shipment` R) `POST /api/shipments/{id}/slip` — 해결 |
 
 **5단계 기준정보 — 확인이 필요한 사항** (§22)
 
@@ -1016,7 +1017,7 @@ POST /api/print/issue {purposeCode, sourceId, printTemplateId?}
 | 6-③ | 투입·작업 (수주번호/주 LOT 스캔, 표준 확정·조건 복사, 시작·완료) | V3.17 완료 (불량 수량은 6-⑤) |
 | 6-④ | 검사·성적서 (검사 1회 : 대상 N, 판정, 대상별 성적서 발행) | V3.18 완료 |
 | 6-⑤ | 부적합·재작업 | V3.19 완료 |
-| 6-⑥ | 출하·마감 (전표, 금액 계산, 업체별 마감·이월) | 대기 |
+| 6-⑥ | 출하·마감 (전표, 금액 계산, 업체별 마감·이월) | V3.20 완료 |
 
 ## 23.2 수주(입고) — 6-①
 
@@ -1126,3 +1127,26 @@ POST /api/print/issue {purposeCode, sourceId, printTemplateId?}
 - 상태 표시명·색은 공통코드 `DEFECT_STATUS` (구 `check_complete`·`plan_complete` 2개 플래그 → 상태 1개, D2). 판정자·완료자 = 사원 id (D3).
 
 **남은 일 (6-⑤):** 여러 부적합을 한 재작업 LOT 에 모으기(현재 1건 = 1 LOT, 같은 설비 LOT 에 추가 투입은 작업 화면 스캔으로는 불가), 특채(조건부 출하) 수량의 출하 연계(6-⑥).
+
+## 23.7 출하·마감 — 6-⑥ (구 F_OutAddForm · F_OutForm · F_MonthlyClosing)
+
+화면 **영업 > 출하** (`sales.shipment`), **영업 > 마감** (`sales.closing`).
+
+| API | 권한 | 동작 |
+|-|-|-|
+| `GET /api/shipments?from&to&customerId&search&includeCancelled`, `GET /{id}` | 출하 R | 전표 목록(수량·공급가액·세액·합계·마감 상태·귀속월)·상세 |
+| `GET /api/shipments/stock?customerId&excludeShipmentId` | 출하 R | **출하 재고** (S1) — 수주 × 출하 LOT(주 LOT). 가능 = 주 LOT 투입 − 부적합(주 LOT·후공정, **처리구분 '출하'(특채)는 제외 = 출하 가능**) − 기출하 − 시험편. 주 LOT 이 없는 수주(경로에 주공정 없음·이관)는 수주 단위. 수주 전체 출하 잔량도 상한 |
+| `POST /api/shipments`, `PUT /{id}` | 출하 C / U | 전표 저장 (한 트랜잭션 S8, 수주 행 잠금으로 동시 출하 직렬화). 수정은 이 전표 수량을 빼고 다시 검증 |
+| `POST /{id}/cancel` | 출하 D | 전표 취소 — 재고는 계산값이라 자동 복귀 (S10) |
+| `POST /{id}/slip` | 출하 R | 거래명세표 (용도 `SHIPMENT_SLIP`, 기본 FIXED `SALES_SLIP`) |
+| `GET /api/closings/customers?year&month`, `GET /candidates`, `GET /`, `GET /{id}` | 마감 R | 업체별 요약(마감 기준일·미마감·마감) / 후보 전표 / 마감 기록 |
+| `POST /api/closings` | 마감 C | **마감** — 선택 전표 CLOSED(귀속 연·월, `shipment_closing_id`) + 마감 기록(번호 `shipment_closing.number_format`, 마감자·시각·합계 Snapshot). `carryOverOthers` = 나머지 미마감을 다음 달로 이월(구 자동 이월 S7). 전표·마감 업체 일치 검증 (§6) |
+| `POST /api/closings/carry-over` | 마감 U | 선택 전표 이월 (CARRIED_OVER, 지정 월) |
+| `POST /api/closings/{id}/reopen` | 마감 D | 마감 취소 — 전표 미마감으로, 마감 기록은 REOPENED 로 보존 + 감사 |
+
+- **금액** (`ShipmentMath`, 단위 테스트): EA 수량 × 단가 / KG 중량(수량 × 단중) × 단가 / CHARGE charge 수 × 단가 — 구 코드는 항상 수량 × 단가(B4). 시험편은 금액 제외(S2). 행 금액을 설정 `sales.amount_rounding` 으로 반올림 → 공급가액 = 합, 세액 = 공급가액 × `sales.vat_rate` 반올림, 저장(출력은 저장값 §15.3 F2). KG 단가인데 단중 없음·CHARGE 인데 charge 수 없음은 거부.
+- **Snapshot:** 전표에 거래처 상호·사업자번호·대표자·업태·종목·주소(S4), 행에 단가 구분·단가·제출 LOT(주 LOT 의 제출 LOT)·고객 LOT·품목.
+- **마감 기준일** = 업체 `closing_day` (31 = 말일, 그 달 날짜 수로 보정, 없으면 말일). 마감 창 기본 선택 = 기준일까지 출하한 미마감·이월 전표.
+- 마감된 전표는 수정·취소 불가(`SHIPMENT_CLOSED`) — 마감 취소 후 가능. 마감 상태 표시는 공통코드 `CLOSING_STATUS`, 마감 기록 상태는 `CLOSING_RUN_STATUS`.
+
+**남은 일 (6-⑥):** 여러 전표 거래명세표 병합 출력(S9 옵션은 있음), 엑셀 내보내기, 반입(재입고) 처리 흐름.

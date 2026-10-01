@@ -2069,6 +2069,7 @@ INSERT INTO system_setting (setting_key, category, setting_name, value_type, def
  ('sales_order.number_format',        '영업',   '수주 묶음 번호 형식',               'STRING',  'SO{yyMMdd}-{SEQ:000}', NULL, NULL, NULL, '한 번에 등록한 입고 행들의 묶음 (구는 묶음 없음)', 0, 25),
  ('sales_order.list_default_days',    '영업',   '수주 목록 기본 조회 기간',          'INT',     '31',    1, 366, '일', '입고일 기준 오늘부터 과거로', 0, 35),
  ('sales_order.item_number_format',   '영업',   '입고(수주)번호 형식',               'STRING',  'I{yyMMdd}-{SEQ:000}', NULL, NULL, NULL, '구 IncomeAddService', 0, 30),
+ ('shipment_closing.number_format',   '영업',   '마감 번호 형식',                    'STRING',  'CL{yyMMdd}-{SEQ:000}', NULL, NULL, NULL, '업체별 마감 실행 1건 (yyMMdd = 마감 기준일)', 0, 45),
  ('shipment.number_format',           '영업',   '출하 전표번호 형식',                'STRING',  'O{yyMMdd}-{SEQ:000}', NULL, NULL, NULL, '구 OutcomeAddService', 0, 40),
  ('standard.code_format',             '생산',   '작업표준 코드 형식',                'STRING',  'STD-{PART}-{UNIT}-{SEQ:00}', NULL, NULL, NULL, '치환: {PART} 품목 코드, {UNIT} 단위공정 코드, {SEQ:00} 같은 품목·공정 순번', 0, 20),
  ('inspection.number_format',         '품질',   '검사번호 형식',                     'STRING',  '{TYPE}{yyMMdd}-{SEQ:000}', NULL, NULL, NULL, '{TYPE} = 공통코드 INSPECTION_TYPE attr prefix (TI/TP/TO)', 0, 10),
@@ -2096,7 +2097,8 @@ INSERT INTO common_code_group (group_code, group_name, description) VALUES
  ('RANGE_TYPE',          '판정 방식',     'inspection_criteria.range_type — 측정값 자동 판정 기준'),
  ('ORDER_STATUS',        '수주 상태',     'sales_order / sales_order_item.status CHECK 값'),
  ('INSPECTION_STATUS',   '검사 상태',     'inspection.status CHECK 값 (저장=미확정, 확정)'),
- ('DEFECT_STATUS',       '부적합 상태',   'defect_occurrence.status CHECK 값 (구 check_complete·plan_complete)');
+ ('DEFECT_STATUS',       '부적합 상태',   'defect_occurrence.status CHECK 값 (구 check_complete·plan_complete)'),
+ ('CLOSING_RUN_STATUS',  '마감 실행 상태', 'shipment_closing.closing_status CHECK 값');
 
 INSERT INTO common_code (common_code_group_id, code, code_name, sort_order, attr_json, is_system)
 SELECT g.common_code_group_id, v.code, v.name, v.ord, v.attr, 1
@@ -2124,9 +2126,9 @@ SELECT g.common_code_group_id, v.code, v.name, v.ord, v.attr, 1
         UNION ALL SELECT 'INSPECTION_TYPE', 'INCOMING', '입고검사', 1, '{"prefix":"TI"}'
         UNION ALL SELECT 'INSPECTION_TYPE', 'PROCESS', '공정검사', 2, '{"prefix":"TP"}'
         UNION ALL SELECT 'INSPECTION_TYPE', 'OUTGOING', '출하검사', 3, '{"prefix":"TO"}'
-        UNION ALL SELECT 'CLOSING_STATUS', 'UNCLOSED', '미마감', 1, NULL
-        UNION ALL SELECT 'CLOSING_STATUS', 'CLOSED', '마감완료', 2, NULL
-        UNION ALL SELECT 'CLOSING_STATUS', 'CARRIED_OVER', '이월', 3, NULL
+        UNION ALL SELECT 'CLOSING_STATUS', 'UNCLOSED', '미마감', 1, '{"color":"#FA8C16"}'
+        UNION ALL SELECT 'CLOSING_STATUS', 'CLOSED', '마감완료', 2, '{"color":"#52C41A"}'
+        UNION ALL SELECT 'CLOSING_STATUS', 'CARRIED_OVER', '이월', 3, '{"color":"#1677FF"}'
         UNION ALL SELECT 'PRICE_BASIS', 'EA', 'ea', 1, '{"legacy":"ea"}'
         UNION ALL SELECT 'PRICE_BASIS', 'KG', 'kg', 2, '{"legacy":"kg"}'
         UNION ALL SELECT 'PRICE_BASIS', 'CHARGE', 'ch', 3, '{"legacy":"ch"}'
@@ -2172,7 +2174,10 @@ SELECT g.common_code_group_id, v.code, v.name, v.ord, v.attr, 1
         UNION ALL SELECT 'DEFECT_STATUS', 'DECIDED', '결정', 2, '{"color":"#FA8C16"}'
         UNION ALL SELECT 'DEFECT_STATUS', 'REWORKING', '재작업 중', 3, '{"color":"#1677FF"}'
         UNION ALL SELECT 'DEFECT_STATUS', 'COMPLETED', '완료', 4, '{"color":"#52C41A"}'
-        UNION ALL SELECT 'DEFECT_STATUS', 'CANCELLED', '취소', 5, '{"color":"#BFBFBF"}') v
+        UNION ALL SELECT 'DEFECT_STATUS', 'CANCELLED', '취소', 5, '{"color":"#BFBFBF"}'
+        UNION ALL SELECT 'CLOSING_RUN_STATUS', 'OPEN', '진행', 1, NULL
+        UNION ALL SELECT 'CLOSING_RUN_STATUS', 'CLOSED', '마감', 2, '{"color":"#52C41A"}'
+        UNION ALL SELECT 'CLOSING_RUN_STATUS', 'REOPENED', '마감 취소', 3, '{"color":"#BFBFBF"}') v
   JOIN common_code_group g ON g.group_code = v.grp;
 
 -- =====================================================================
@@ -2223,6 +2228,8 @@ SELECT v.k, v.n, p.menu_id, v.r, v.o
   FROM (SELECT 'production.schedule' k, '생산계획' n, 'production' parent, '/production/schedule' r, 10 o
         UNION ALL SELECT 'production.work',         '작업(투입)',    'production', '/production/works', 20
         UNION ALL SELECT 'sales.order',             '수주(입고)',    'sales', '/sales/orders', 10
+        UNION ALL SELECT 'sales.shipment',          '출하',          'sales', '/sales/shipments', 20
+        UNION ALL SELECT 'sales.closing',           '마감',          'sales', '/sales/closings', 30
         UNION ALL SELECT 'quality.inspection',      '검사',          'quality', '/quality/inspections', 10
         UNION ALL SELECT 'quality.defect',          '부적합',        'quality', '/quality/defects', 20
         UNION ALL SELECT 'master.company',          '자사 정보',     'master', '/master/company', 10
