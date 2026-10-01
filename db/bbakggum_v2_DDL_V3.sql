@@ -2099,7 +2099,151 @@ SELECT ds.print_data_source_id, v.k, v.a, v.t, v.g, v.f, v.d, v.s, v.o
         UNION ALL SELECT 'SALES_ORDER', 'Processes', '공정순서', 'LIST', '공정', NULL, '수주 공정 경로 단계', NULL, 100
         UNION ALL SELECT 'SALES_ORDER', 'Processes.Seq', NULL, 'NUMBER', '공정', NULL, NULL, '1', 101
         UNION ALL SELECT 'SALES_ORDER', 'Processes.UnitProcess', NULL, 'TEXT', '공정', NULL, NULL, '침탄', 102
-        UNION ALL SELECT 'SALES_ORDER', 'Processes.IsMain', NULL, 'TEXT', '공정', NULL, '주공정이면 "주"', NULL, 103) v
+        UNION ALL SELECT 'SALES_ORDER', 'Processes.IsMain', NULL, 'TEXT', '공정', NULL, '주공정이면 "주"', NULL, 103
+        UNION ALL SELECT 'PRODUCTION_WORK', 'LotNo', '로트번호', 'TEXT', '로트', NULL, NULL, '260930-B01-001', 10
+        UNION ALL SELECT 'PRODUCTION_WORK', 'WorkDate', '작업일자', 'DATE', '로트', 'yyyy-MM-dd', NULL, '2026-09-30', 11
+        UNION ALL SELECT 'PRODUCTION_WORK', 'IssueDate', '발행일', 'DATE', '로트', 'yyyy-MM-dd', NULL, NULL, 12
+        UNION ALL SELECT 'PRODUCTION_WORK', 'StatusName', '진행상태', 'TEXT', '로트', NULL, '공통코드 WORK_STATUS 표시명', '완료', 13
+        UNION ALL SELECT 'PRODUCTION_WORK', 'EquipmentName', '설비명', 'TEXT', '로트', NULL, NULL, '가스로1호기', 14
+        UNION ALL SELECT 'PRODUCTION_WORK', 'UnitProcessName', '단위공정', 'TEXT', '로트', NULL, NULL, '침탄', 15
+        UNION ALL SELECT 'PRODUCTION_WORK', 'HeatProcessName', '공정', 'TEXT', '로트', NULL, NULL, NULL, 16
+        UNION ALL SELECT 'PRODUCTION_WORK', 'WorkerName', '작업자', 'TEXT', '로트', NULL, NULL, NULL, 17
+        UNION ALL SELECT 'PRODUCTION_WORK', 'StartedAt', '시작시간', 'TEXT', '로트', NULL, 'yyyy-MM-dd HH:mm', NULL, 18
+        UNION ALL SELECT 'PRODUCTION_WORK', 'EndedAt', '완료시간', 'TEXT', '로트', NULL, 'yyyy-MM-dd HH:mm', NULL, 19
+        UNION ALL SELECT 'PRODUCTION_WORK', 'ExpectedHours', '예상시간', 'NUMBER', '로트', '0.0', '시간', NULL, 20
+        UNION ALL SELECT 'PRODUCTION_WORK', 'ActualHours', '실작업시간', 'NUMBER', '로트', '0.0', '시간', NULL, 21
+        UNION ALL SELECT 'PRODUCTION_WORK', 'IsRework', '재작업', 'TEXT', '로트', NULL, '예 / 아니오', NULL, 22
+        UNION ALL SELECT 'PRODUCTION_WORK', 'IsMainProcess', '주공정', 'TEXT', '로트', NULL, NULL, NULL, 23
+        UNION ALL SELECT 'PRODUCTION_WORK', 'MainLotNo', '주LOT', 'TEXT', '로트', NULL, NULL, NULL, 24
+        UNION ALL SELECT 'PRODUCTION_WORK', 'SubmitLotNo', '제출LOT', 'TEXT', '로트', NULL, NULL, NULL, 25
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Marking', '마킹', 'TEXT', '로트', NULL, NULL, NULL, 26
+        UNION ALL SELECT 'PRODUCTION_WORK', 'PartName', '대표품명', 'TEXT', '로트', NULL, '표준 확정 품목 (혼적 LOT)', NULL, 27
+        UNION ALL SELECT 'PRODUCTION_WORK', 'CustomerName', '대표거래처', 'TEXT', '로트', NULL, NULL, NULL, 28
+        UNION ALL SELECT 'PRODUCTION_WORK', 'TotalQty', '총투입수량', 'NUMBER', '로트', '#,##0', NULL, NULL, 29
+        UNION ALL SELECT 'PRODUCTION_WORK', 'TotalWeight', '총투입중량', 'NUMBER', '로트', '#,##0.##', NULL, NULL, 30
+        UNION ALL SELECT 'PRODUCTION_WORK', 'DefectQty', '불량수량', 'NUMBER', '로트', '#,##0', NULL, NULL, 31
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Remark', '특기사항', 'TEXT', '로트', NULL, NULL, NULL, 32
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Inputs', '투입', 'LIST', '투입', NULL, '수주별 투입 행', NULL, 50
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Inputs.No', NULL, 'NUMBER', '투입', NULL, NULL, NULL, 51
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Inputs.SalesOrderNo', NULL, 'TEXT', '투입', NULL, NULL, NULL, 52
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Inputs.CustomerName', NULL, 'TEXT', '투입', NULL, NULL, NULL, 53
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Inputs.PartName', NULL, 'TEXT', '투입', NULL, NULL, NULL, 54
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Inputs.PartNumber', NULL, 'TEXT', '투입', NULL, NULL, NULL, 55
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Inputs.Specification', NULL, 'TEXT', '투입', NULL, NULL, NULL, 56
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Inputs.Model', NULL, 'TEXT', '투입', NULL, NULL, NULL, 57
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Inputs.CustomerLot', NULL, 'TEXT', '투입', NULL, NULL, NULL, 58
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Inputs.Qty', NULL, 'NUMBER', '투입', '#,##0', NULL, NULL, 60
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Inputs.DefectQty', NULL, 'NUMBER', '투입', '#,##0', NULL, NULL, 61
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Inputs.Weight', NULL, 'NUMBER', '투입', '#,##0.##', NULL, NULL, 62
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Splits', '분할', 'LIST', '분할', NULL, '트레이·장입·추출', NULL, 70
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Splits.Tray', NULL, 'TEXT', '분할', NULL, NULL, NULL, 71
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Splits.Qty', NULL, 'NUMBER', '분할', '#,##0', NULL, NULL, 72
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Splits.LoadedAt', NULL, 'TEXT', '분할', NULL, 'HH:mm', NULL, 73
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Splits.UnloadedAt', NULL, 'TEXT', '분할', NULL, 'HH:mm', NULL, 74
+        UNION ALL SELECT 'PRODUCTION_WORK', 'StandardSteps', '작업표준스텝', 'LIST', '작업표준', NULL, '스텝(열) 머리 — No 0 = 공통', NULL, 100
+        UNION ALL SELECT 'PRODUCTION_WORK', 'StandardSteps.No', NULL, 'NUMBER', '작업표준', NULL, NULL, '1', 101
+        UNION ALL SELECT 'PRODUCTION_WORK', 'StandardSteps.Name', NULL, 'TEXT', '작업표준', NULL, NULL, '승온', 102
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Standard', '작업표준', 'LIST', '작업표준', NULL, '관리항목(행) — S0 공통, S1~Sn 스텝 값', NULL, 105
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Standard.Item', NULL, 'TEXT', '작업표준', NULL, NULL, '온도', 106
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Standard.Unit', NULL, 'TEXT', '작업표준', NULL, NULL, '℃', 107
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Standard.S0', NULL, 'TEXT', '작업표준', NULL, '공통', NULL, 108
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Standard.S1', NULL, 'TEXT', '작업표준', NULL, NULL, NULL, 109
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Standard.S2', NULL, 'TEXT', '작업표준', NULL, NULL, NULL, 110
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Standard.S3', NULL, 'TEXT', '작업표준', NULL, NULL, NULL, 111
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Standard.S4', NULL, 'TEXT', '작업표준', NULL, NULL, NULL, 112
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Standard.S5', NULL, 'TEXT', '작업표준', NULL, NULL, NULL, 113
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Standard.S6', NULL, 'TEXT', '작업표준', NULL, NULL, NULL, 114
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Standard.S7', NULL, 'TEXT', '작업표준', NULL, NULL, NULL, 115
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Standard.S8', NULL, 'TEXT', '작업표준', NULL, NULL, NULL, 116
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Standard.S9', NULL, 'TEXT', '작업표준', NULL, NULL, NULL, 117
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Standard.S10', NULL, 'TEXT', '작업표준', NULL, NULL, NULL, 118
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Standard.S11', NULL, 'TEXT', '작업표준', NULL, NULL, NULL, 119
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Standard.S12', NULL, 'TEXT', '작업표준', NULL, NULL, NULL, 120
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Standard.S13', NULL, 'TEXT', '작업표준', NULL, NULL, NULL, 121
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Standard.S14', NULL, 'TEXT', '작업표준', NULL, NULL, NULL, 122
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Standard.S15', NULL, 'TEXT', '작업표준', NULL, NULL, NULL, 123
+        UNION ALL SELECT 'PRODUCTION_WORK', 'ConditionsSteps', '작업조건스텝', 'LIST', '작업조건', NULL, '스텝(열) 머리 — No 0 = 공통', NULL, 140
+        UNION ALL SELECT 'PRODUCTION_WORK', 'ConditionsSteps.No', NULL, 'NUMBER', '작업조건', NULL, NULL, '1', 141
+        UNION ALL SELECT 'PRODUCTION_WORK', 'ConditionsSteps.Name', NULL, 'TEXT', '작업조건', NULL, NULL, '승온', 142
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Conditions', '작업조건', 'LIST', '작업조건', NULL, '관리항목(행) — S0 공통, S1~Sn 스텝 값', NULL, 145
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Conditions.Item', NULL, 'TEXT', '작업조건', NULL, NULL, '온도', 146
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Conditions.Unit', NULL, 'TEXT', '작업조건', NULL, NULL, '℃', 147
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Conditions.S0', NULL, 'TEXT', '작업조건', NULL, '공통', NULL, 148
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Conditions.S1', NULL, 'TEXT', '작업조건', NULL, NULL, NULL, 149
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Conditions.S2', NULL, 'TEXT', '작업조건', NULL, NULL, NULL, 150
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Conditions.S3', NULL, 'TEXT', '작업조건', NULL, NULL, NULL, 151
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Conditions.S4', NULL, 'TEXT', '작업조건', NULL, NULL, NULL, 152
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Conditions.S5', NULL, 'TEXT', '작업조건', NULL, NULL, NULL, 153
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Conditions.S6', NULL, 'TEXT', '작업조건', NULL, NULL, NULL, 154
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Conditions.S7', NULL, 'TEXT', '작업조건', NULL, NULL, NULL, 155
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Conditions.S8', NULL, 'TEXT', '작업조건', NULL, NULL, NULL, 156
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Conditions.S9', NULL, 'TEXT', '작업조건', NULL, NULL, NULL, 157
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Conditions.S10', NULL, 'TEXT', '작업조건', NULL, NULL, NULL, 158
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Conditions.S11', NULL, 'TEXT', '작업조건', NULL, NULL, NULL, 159
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Conditions.S12', NULL, 'TEXT', '작업조건', NULL, NULL, NULL, 160
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Conditions.S13', NULL, 'TEXT', '작업조건', NULL, NULL, NULL, 161
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Conditions.S14', NULL, 'TEXT', '작업조건', NULL, NULL, NULL, 162
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Conditions.S15', NULL, 'TEXT', '작업조건', NULL, NULL, NULL, 163
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Inspections', '검사', 'LIST', '검사', NULL, '이 LOT 검사의 항목', NULL, 180
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Inspections.InspectionNo', NULL, 'TEXT', '검사', NULL, NULL, NULL, 181
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Inspections.Item', NULL, 'TEXT', '검사', NULL, NULL, NULL, 182
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Inspections.Specification', NULL, 'TEXT', '검사', NULL, NULL, NULL, 183
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Inspections.Values', NULL, 'TEXT', '검사', NULL, NULL, NULL, 184
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Inspections.Result', NULL, 'TEXT', '검사', NULL, NULL, NULL, 185
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Inspections.Decision', NULL, 'TEXT', '검사', NULL, NULL, NULL, 186
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Defects', '불량', 'LIST', '불량', NULL, '이 LOT 부적합', NULL, 190
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Defects.SalesOrderNo', NULL, 'TEXT', '불량', NULL, NULL, NULL, 191
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Defects.Qty', NULL, 'NUMBER', '불량', '#,##0', NULL, NULL, 192
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Defects.Detail', NULL, 'TEXT', '불량', NULL, NULL, NULL, 193
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Defects.Reason', NULL, 'TEXT', '불량', NULL, NULL, NULL, 194
+        UNION ALL SELECT 'PRODUCTION_WORK', 'Defects.Decision', NULL, 'TEXT', '불량', NULL, NULL, NULL, 195
+        UNION ALL SELECT 'STANDARD', 'StandardCode', '표준코드', 'TEXT', '표준', NULL, NULL, NULL, 10
+        UNION ALL SELECT 'STANDARD', 'StandardName', '표준명', 'TEXT', '표준', NULL, NULL, NULL, 11
+        UNION ALL SELECT 'STANDARD', 'VersionNo', '버전', 'TEXT', '표준', NULL, NULL, '1', 12
+        UNION ALL SELECT 'STANDARD', 'WriteDate', '작성일', 'DATE', '표준', 'yyyy-MM-dd', 'Version 적용 시작일', NULL, 13
+        UNION ALL SELECT 'STANDARD', 'IssueDate', '발행일', 'DATE', '표준', 'yyyy-MM-dd', NULL, NULL, 14
+        UNION ALL SELECT 'STANDARD', 'CustomerName', '거래처', 'TEXT', '품목', NULL, NULL, NULL, 20
+        UNION ALL SELECT 'STANDARD', 'PartName', '품명', 'TEXT', '품목', NULL, NULL, NULL, 21
+        UNION ALL SELECT 'STANDARD', 'PartNumber', '품번', 'TEXT', '품목', NULL, NULL, NULL, 22
+        UNION ALL SELECT 'STANDARD', 'Specification', '규격', 'TEXT', '품목', NULL, NULL, NULL, 23
+        UNION ALL SELECT 'STANDARD', 'Model', '기종', 'TEXT', '품목', NULL, NULL, NULL, 24
+        UNION ALL SELECT 'STANDARD', 'Material', '재질', 'TEXT', '요구사항', NULL, '품목 기준정보', NULL, 30
+        UNION ALL SELECT 'STANDARD', 'Hardness', '요구경도', 'TEXT', '요구사항', NULL, '품목 기준정보', NULL, 31
+        UNION ALL SELECT 'STANDARD', 'CoreHardness', '심부경도', 'TEXT', '요구사항', NULL, '품목 기준정보', NULL, 32
+        UNION ALL SELECT 'STANDARD', 'CaseDepth', '경화층', 'TEXT', '요구사항', NULL, '품목 기준정보', NULL, 33
+        UNION ALL SELECT 'STANDARD', 'Texture', '조직', 'TEXT', '요구사항', NULL, '품목 기준정보', NULL, 34
+        UNION ALL SELECT 'STANDARD', 'EquipmentTypeName', '설비구분', 'TEXT', '설비·사이클', NULL, NULL, NULL, 40
+        UNION ALL SELECT 'STANDARD', 'EquipmentName', '적용설비', 'TEXT', '설비·사이클', NULL, NULL, NULL, 41
+        UNION ALL SELECT 'STANDARD', 'UnitProcessName', '단위공정', 'TEXT', '설비·사이클', NULL, NULL, NULL, 42
+        UNION ALL SELECT 'STANDARD', 'Charge', '투입수량', 'TEXT', '설비·사이클', NULL, NULL, NULL, 43
+        UNION ALL SELECT 'STANDARD', 'ChargeUnit', '투입단위', 'TEXT', '설비·사이클', NULL, NULL, NULL, 44
+        UNION ALL SELECT 'STANDARD', 'ChargeQty', '투입기준수량', 'NUMBER', '설비·사이클', '#,##0.###', NULL, NULL, 45
+        UNION ALL SELECT 'STANDARD', 'RunningHours', '작업시간', 'NUMBER', '설비·사이클', '0.##', '시간 (저장은 분)', NULL, 46
+        UNION ALL SELECT 'STANDARD', 'HeatProcessName', '열처리공정', 'TEXT', '공정', NULL, NULL, NULL, 50
+        UNION ALL SELECT 'STANDARD', 'ProcessFlow', '공정순서', 'TEXT', '공정', NULL, '공정 경로 "세척 → 침탄 → …"', NULL, 51
+        UNION ALL SELECT 'STANDARD', 'Remark', '비고', 'TEXT', '표준', NULL, NULL, NULL, 60
+        UNION ALL SELECT 'STANDARD', 'StandardSteps', '작업표준스텝', 'LIST', '작업표준', NULL, '스텝(열) 머리 — No 0 = 공통', NULL, 100
+        UNION ALL SELECT 'STANDARD', 'StandardSteps.No', NULL, 'NUMBER', '작업표준', NULL, NULL, '1', 101
+        UNION ALL SELECT 'STANDARD', 'StandardSteps.Name', NULL, 'TEXT', '작업표준', NULL, NULL, '승온', 102
+        UNION ALL SELECT 'STANDARD', 'Standard', '작업표준', 'LIST', '작업표준', NULL, '관리항목(행) — S0 공통, S1~Sn 스텝 값', NULL, 105
+        UNION ALL SELECT 'STANDARD', 'Standard.Item', NULL, 'TEXT', '작업표준', NULL, NULL, '온도', 106
+        UNION ALL SELECT 'STANDARD', 'Standard.Unit', NULL, 'TEXT', '작업표준', NULL, NULL, '℃', 107
+        UNION ALL SELECT 'STANDARD', 'Standard.S0', NULL, 'TEXT', '작업표준', NULL, '공통', NULL, 108
+        UNION ALL SELECT 'STANDARD', 'Standard.S1', NULL, 'TEXT', '작업표준', NULL, NULL, NULL, 109
+        UNION ALL SELECT 'STANDARD', 'Standard.S2', NULL, 'TEXT', '작업표준', NULL, NULL, NULL, 110
+        UNION ALL SELECT 'STANDARD', 'Standard.S3', NULL, 'TEXT', '작업표준', NULL, NULL, NULL, 111
+        UNION ALL SELECT 'STANDARD', 'Standard.S4', NULL, 'TEXT', '작업표준', NULL, NULL, NULL, 112
+        UNION ALL SELECT 'STANDARD', 'Standard.S5', NULL, 'TEXT', '작업표준', NULL, NULL, NULL, 113
+        UNION ALL SELECT 'STANDARD', 'Standard.S6', NULL, 'TEXT', '작업표준', NULL, NULL, NULL, 114
+        UNION ALL SELECT 'STANDARD', 'Standard.S7', NULL, 'TEXT', '작업표준', NULL, NULL, NULL, 115
+        UNION ALL SELECT 'STANDARD', 'Standard.S8', NULL, 'TEXT', '작업표준', NULL, NULL, NULL, 116
+        UNION ALL SELECT 'STANDARD', 'Standard.S9', NULL, 'TEXT', '작업표준', NULL, NULL, NULL, 117
+        UNION ALL SELECT 'STANDARD', 'Standard.S10', NULL, 'TEXT', '작업표준', NULL, NULL, NULL, 118
+        UNION ALL SELECT 'STANDARD', 'Standard.S11', NULL, 'TEXT', '작업표준', NULL, NULL, NULL, 119
+        UNION ALL SELECT 'STANDARD', 'Standard.S12', NULL, 'TEXT', '작업표준', NULL, NULL, NULL, 120
+        UNION ALL SELECT 'STANDARD', 'Standard.S13', NULL, 'TEXT', '작업표준', NULL, NULL, NULL, 121
+        UNION ALL SELECT 'STANDARD', 'Standard.S14', NULL, 'TEXT', '작업표준', NULL, NULL, NULL, 122
+        UNION ALL SELECT 'STANDARD', 'Standard.S15', NULL, 'TEXT', '작업표준', NULL, NULL, NULL, 123) v
   JOIN print_data_source ds ON ds.data_source_code = v.ds;
 
 -- =====================================================================

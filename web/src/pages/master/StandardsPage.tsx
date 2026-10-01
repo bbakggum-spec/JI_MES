@@ -2,6 +2,7 @@ import { CopyOutlined, PlusOutlined, SaveOutlined } from '@ant-design/icons'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Alert, App, Button, Col, Form, Input, InputNumber, Modal, Radio, Row, Select, Space, Switch, Table, Tabs, Tag, Typography } from 'antd'
 import EditorWindow from '../../components/EditorWindow'
+import PrintButton from '../../components/PrintButton'
 import dayjs from 'dayjs'
 import { useMemo, useState } from 'react'
 import { ApiError, api } from '../../api/client'
@@ -123,7 +124,11 @@ function StandardWindow({ id, canEdit, onClose, onSaved }: { id: number | null; 
   if (id !== null && !detail.data) return null
   const d = detail.data
   return (
-    <EditorWindow onClose={onClose} size={1200} title={d ? `${d.header.standardName} (${d.header.standardCode})` : '작업표준 추가'} destroyOnHidden>
+    <EditorWindow onClose={onClose} size={1200} title={d ? `${d.header.standardName} (${d.header.standardCode})` : '작업표준 추가'} destroyOnHidden
+      extra={d?.version && (
+        // 구 F_WorkStandardForm 작업표준서 — 현재 버전 (이전 버전은 버전 이력에서)
+        <PrintButton purposeCode="WORK_STANDARD" sourceIds={[d.version.standardVersionId]}>작업표준서 v{d.version.versionNo}</PrintButton>
+      )}>
       {d ? (
         <Tabs items={[
           { key: 'edit', label: `조건 (현재 v${d.version?.versionNo ?? '-'})`, children: <Editor key={dataVersion} standard={d} canEdit={canEdit} onSaved={() => { void detail.refetch(); onSaved(id!) }} /> },
@@ -141,7 +146,12 @@ function StandardWindow({ id, canEdit, onClose, onSaved }: { id: number | null; 
                     { title: '작성', dataIndex: 'createdByName', width: 100 },
                     { title: '비고', dataIndex: 'remark' },
                   ]} />
-                {viewVersionId && <OldVersion standardId={d.header.standardId} versionId={viewVersionId} />}
+                {viewVersionId && (
+                  <>
+                    <div style={{ margin: '8px 0' }}><PrintButton purposeCode="WORK_STANDARD" sourceIds={[viewVersionId]} size="small">이 버전 작업표준서</PrintButton></div>
+                    <OldVersion standardId={d.header.standardId} versionId={viewVersionId} />
+                  </>
+                )}
               </>
             ),
           },

@@ -8,6 +8,7 @@ import dayjs, { type Dayjs } from 'dayjs'
 import { useMemo, useRef, useState, type ReactNode } from 'react'
 import { ApiError, api } from '../../api/client'
 import { useCan } from '../../auth/useAuth'
+import PrintButton from '../../components/PrintButton'
 import { useClientSettings } from '../../hooks/useClientSettings'
 import { useCommonCodes } from '../../hooks/useCommonCodes'
 import { useDataVersion } from '../../hooks/useDataVersion'
@@ -179,10 +180,14 @@ function WorkPanel({ id, menuKey }: { id: number; menuKey: string }) {
         title={<Space><Typography.Text strong style={{ fontSize: 18 }}>{w.lotNo}</Typography.Text>
           <Tag color={w.status === 'INPUT' ? 'processing' : w.status === 'COMPLETED' ? 'success' : 'default'}>{codes.name('WORK_STATUS', w.status)}</Tag>
           {w.isMainProcess && <Tag color="gold">주공정</Tag>}</Space>}
-        extra={canUpdate && (
-          <Space>
-            {w.status === 'ALLOCATED' && <Button type="primary" icon={<PlayCircleOutlined />} loading={busy} disabled={w.inputCount === 0} onClick={() => setFinishing('start')}>투입(시작)</Button>}
-            {w.status === 'INPUT' && <Button type="primary" icon={<CheckCircleOutlined />} loading={busy} onClick={() => setFinishing('complete')}>완료</Button>}
+        extra={(
+          <Space wrap>
+            {/* 구 F_GasForm 작업일보 + 엑셀 양식을 등록하면 작업지시서·LOT 라벨 */}
+            <PrintButton purposeCode="WORK_DAILY" sourceIds={[id]}>작업일보</PrintButton>
+            <PrintButton purposeCode="WORK_ORDER" sourceIds={[id]} hideWithoutTemplate>작업지시서</PrintButton>
+            <PrintButton purposeCode="LOT_LABEL" sourceIds={[id]} hideWithoutTemplate>LOT 라벨</PrintButton>
+            {canUpdate && w.status === 'ALLOCATED' && <Button type="primary" icon={<PlayCircleOutlined />} loading={busy} disabled={w.inputCount === 0} onClick={() => setFinishing('start')}>투입(시작)</Button>}
+            {canUpdate && w.status === 'INPUT' && <Button type="primary" icon={<CheckCircleOutlined />} loading={busy} onClick={() => setFinishing('complete')}>완료</Button>}
           </Space>
         )}>
         <Descriptions size="small" column={{ xs: 1, md: 3 }} items={[

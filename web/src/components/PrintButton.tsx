@@ -12,13 +12,15 @@ interface Choice { printTemplateId: number; printTemplateName: string; templateK
  * 여러 건을 고르면 한 파일로 나온다. PDF 는 새 탭으로 열어 바로 인쇄, 엑셀은 내려받기.
  * 권한 = 이 화면(데이터 공급원) 읽기 권한 — 서버가 확인.
  */
-export default function PrintButton({ purposeCode, sourceIds, children, size, disabledReason }: {
+export default function PrintButton({ purposeCode, sourceIds, children, size, disabledReason, hideWithoutTemplate }: {
   purposeCode: string
   sourceIds: number[]
   children: ReactNode
   size?: 'small' | 'middle'
   /** 누를 수 없을 때 이유 (예: 고른 행 없음) */
   disabledReason?: string
+  /** 등록된 양식이 없으면 버튼을 숨김 (작업지시서·LOT 라벨처럼 엑셀 양식을 등록해야 쓰는 용도) */
+  hideWithoutTemplate?: boolean
 }) {
   const { message } = App.useApp()
   const [templateId, setTemplateId] = useState<number>()
@@ -51,6 +53,7 @@ export default function PrintButton({ purposeCode, sourceIds, children, size, di
     }
   }
 
+  if (hideWithoutTemplate && list.length === 0) return null
   const button = (
     <Button size={size} icon={<PrinterOutlined />} loading={busy} disabled={!!reason} onClick={() => void print()}>
       {children}{sourceIds.length > 1 && ` (${sourceIds.length})`}
