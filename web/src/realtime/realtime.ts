@@ -5,6 +5,7 @@ export const RealtimeEvents = {
   settingChanged: 'settingChanged',
   commonCodeChanged: 'commonCodeChanged',
   scheduleChanged: 'scheduleChanged',
+  workerAssignmentChanged: 'workerAssignmentChanged',
 } as const
 
 export type RealtimeStatus = 'disconnected' | 'connecting' | 'connected' | 'reconnecting'

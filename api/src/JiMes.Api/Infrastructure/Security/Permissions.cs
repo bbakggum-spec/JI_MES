@@ -26,6 +26,7 @@ public static class MenuKeys
     public const string EquipmentDowntime = "equipment.downtime";
     public const string EquipmentMaintenance = "equipment.maintenance";
     public const string QualityCalibration = "quality.calibration";
+    public const string EquipmentWorkerAssignment = "equipment.worker_assignment";
 
     public const string SystemUser = "system.user";
     public const string SystemRole = "system.role";

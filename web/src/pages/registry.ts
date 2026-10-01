@@ -21,6 +21,7 @@ export const pageRegistry: Record<string, Page> = {
   'equipment.downtime': lazy(() => import('./equipment/DowntimePage')),
   'equipment.maintenance': lazy(() => import('./equipment/MaintenancePage')),
   'quality.calibration': lazy(() => import('./quality/CalibrationsPage')),
+  'equipment.worker_assignment': lazy(() => import('./equipment/WorkerAssignmentPage')),
   'production.schedule': lazy(() => import('./production/SchedulePage')),
   'production.work': lazy(() => import('./production/WorksPage')),
   'quality.inspection': lazy(() => import('./quality/InspectionsPage')),

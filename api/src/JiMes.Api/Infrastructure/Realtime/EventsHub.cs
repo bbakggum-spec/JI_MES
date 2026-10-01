@@ -22,6 +22,9 @@ public static class RealtimeEvents
 
     /// <summary>payload: { equipmentIds } — 해당 설비의 계획이 바뀜 (사용자 조작 또는 지연 반영 재계산)</summary>
     public const string ScheduleChanged = "scheduleChanged";
+
+    /// <summary>payload: { workDate } — 그 작업일 작업자 배치가 바뀜</summary>
+    public const string WorkerAssignmentChanged = "workerAssignmentChanged";
 }
 
 public sealed class EventPublisher(IHubContext<EventsHub> hub)

@@ -40,6 +40,19 @@ public static class EquipmentEndpoints
             (s, id, a, ct) => s.GetRequiredService<MaintenanceService>().GetAttachmentAsync(id, a, ct),
             (s, id, a, ct) => s.GetRequiredService<MaintenanceService>().DeleteAttachmentAsync(id, a, ct));
 
+        var w = app.MapGroup("/api/worker-assignments").WithTags("WorkerAssignment");
+        const string assignment = MenuKeys.EquipmentWorkerAssignment;
+        w.MapGet("/board", (DateOnly workDate, WorkerAssignmentService s, CancellationToken ct) => s.BoardAsync(workDate, ct))
+            .RequirePermission(assignment, PermissionAction.Read);
+        w.MapPost("/", async (AssignmentCreateRequest r, WorkerAssignmentService s, CancellationToken ct) => Results.Ok(new { id = await s.CreateAsync(r, ct) }))
+            .RequirePermission(assignment, PermissionAction.Create);
+        w.MapPut("/{id:long}", async (long id, AssignmentUpdateRequest r, WorkerAssignmentService s, CancellationToken ct) => { await s.UpdateAsync(id, r, ct); return Results.NoContent(); })
+            .RequirePermission(assignment, PermissionAction.Update);
+        w.MapDelete("/{id:long}", async (long id, WorkerAssignmentService s, CancellationToken ct) => { await s.DeleteAsync(id, ct); return Results.NoContent(); })
+            .RequirePermission(assignment, PermissionAction.Delete);
+        w.MapPost("/copy", async (AssignmentCopyRequest r, WorkerAssignmentService s, CancellationToken ct) => Results.Ok(new { copied = await s.CopyAsync(r, ct) }))
+            .RequirePermission(assignment, PermissionAction.Create);
+
         var c = app.MapGroup("/api/calibrations").WithTags("Calibration");
         const string calibration = MenuKeys.QualityCalibration;
         c.MapGet("/instruments", (CalibrationService s, CancellationToken ct, bool includeInactive = false) => s.InstrumentsAsync(includeInactive, ct))

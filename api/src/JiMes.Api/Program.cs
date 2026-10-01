@@ -106,6 +106,7 @@ services.AddScoped<JiMes.Api.Infrastructure.Files.AttachmentStore>();
 services.AddScoped<DowntimeService>();
 services.AddScoped<MaintenanceService>();
 services.AddScoped<CalibrationService>();
+services.AddScoped<WorkerAssignmentService>();
 services.AddScoped<ShipmentService>();
 services.AddScoped<ClosingService>();
 services.AddScoped<LotReportService>();

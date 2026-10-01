@@ -2310,6 +2310,7 @@ SELECT v.k, v.n, p.menu_id, v.r, v.o
         UNION ALL SELECT 'system.print',   '출력 양식',   'system', '/system/print-templates', 60
         UNION ALL SELECT 'equipment.downtime', '비가동', 'equipment', '/equipment/downtime', 10
         UNION ALL SELECT 'equipment.maintenance', '설비 보전', 'equipment', '/equipment/maintenance', 20
+        UNION ALL SELECT 'equipment.worker_assignment', '작업자 배치', 'equipment', '/equipment/worker-assignment', 30
         UNION ALL SELECT 'quality.calibration', '측정기구 교정', 'quality', '/quality/calibrations', 30
         UNION ALL SELECT 'master.unit_inspection_item', '공정검사 항목', 'master', '/master/unit-inspection-item', 68) v
   JOIN menu p ON p.menu_key = v.parent;

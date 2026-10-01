@@ -38,6 +38,10 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
     connection.on(RealtimeEvents.scheduleChanged, () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.schedule })
     })
+    // 다른 사용자의 작업자 배치 변경 → 배치 보드 다시 조회
+    connection.on(RealtimeEvents.workerAssignmentChanged, () => {
+      void queryClient.invalidateQueries({ queryKey: [...queryKeys.equipment, 'assignments'] })
+    })
     connection.onreconnecting(() => report('reconnecting'))
     connection.onreconnected(() => {
       report('connected')
