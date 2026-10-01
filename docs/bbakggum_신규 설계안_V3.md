@@ -1,4 +1,4 @@
-# bbakggum DB 구조개편 설계안 V3.27
+# bbakggum DB 구조개편 설계안 V3.28
 
 | 항목 | 내용 |
 |-|-|
@@ -20,6 +20,7 @@
 | V3.5 | 2026-09-30 | **모든 출력물 = 사용자 엑셀 양식 등록 방식**, 출력 용도 **사용자 확장**(`print_purpose`), 양식 파일 **DB 버전 보관**, 치환자 사전(`print_field`), 출력 이력(`print_log`), **구현 시 주의사항**(§15: 스케줄·진행현황, 엑셀 양식 출력 — 기존 소스 분석), 기존 DB 보존 + 신규 구축 원칙 명시 |
 | V3.6 | 2026-09-30 | 양식 등록 방식 **2가지**: EXCEL(사용자 수정 양식) + **FIXED**(코드 고정 레이아웃 — 거래명세표 등 구 PrintDoc 7종, 레이아웃 옵션은 관리자 조정), **하드코딩 → 관리자 설정**(§15.4, `system_setting` 확장·초기값, 로직 참조 공통코드, 단말별 프린터 `workstation_print_setting`, 도장 이미지 DB 보관) |
 | V3.8 | 2026-09-30 | **1단계 기존 폼 분석 반영** (`docs/legacy_forms/`): 입고번호 = 스캔 수주번호(`order_item_no`), 수주 행 요구사항 Snapshot·우선순위·별도관리·고객 작업지시번호, 품목 단가 적용 구분(EA/KG/CHARGE), 설비당 투입 중 작업 1건, 한 LOT에 같은 수주 1회, 관리항목 템플릿(`step_template_condition`), 검사구분(입고/공정/출하)·재검사·**검사 결과 공통 적용**, 부적합 처리구분(재처리/출하/선별/보류/폐기/반송), 출하 시험편·거래처 Snapshot·전표 단위 마감 상태(미마감/마감/이월), 공통 첨부(`attachment`), 설정·공통코드 추가. 배정 병합 시 최대 작업시간, 지연 시 뒤 배정 계획시각 자동 이동 |
+| V3.28 | 2026-10-01 | **9단계 ② 설비 보전·측정기구 교정** (§28.3~28.4, 구 F_MaintenanceForm): 보전 목록·점검 예정(지남·임박)·사진 첨부, 측정기구별 교정 상태·이력·성적서 파일(교정 저장 시 최근·다음 교정일 반영). 공통 첨부 `AttachmentStore`·`AttachmentList` 로 정리. DDL: `maintenance` 부위·업체·비용·다음 점검일·row_version, `instrument_calibration`, 공통코드 `MAINTENANCE_TYPE`·`MAINTENANCE_STATUS`·첨부 2종, 설정 `maintenance.due_soon_days`·`instrument.calibration_due_soon_days`, 메뉴 `equipment.maintenance`·`quality.calibration`. 이관: 구 측정기구 기록 → 교정 이력 |
 | V3.27 | 2026-10-01 | **9단계 ① 비가동·공정검사 항목** (§28.1~28.2, 구 F_DowntimeInput·F_DowntimeStatus): 입력·현황 한 화면(설비별·사유별 합계, 진행 중 [종료]), 계획 비가동 저장 시 스케줄 재계산, 공정검사 항목 기준정보. DDL: 메뉴 `equipment.downtime`·`master.unit_inspection_item` |
 | V3.26 | 2026-10-01 | **구매관리 설계** (§27: 구매처·구매 품목·구매(발주·입고)·현황 출력, 13단계), "준비 중" 화면 정리·단계 조정 (§26.4~26.5, 운영 전환 = 14단계). §12 ⑤ 거래명세표 양식 선택 콤보 구현, ⑩ 일괄 전환·⑪ 주공정 추정 안 함·⑫ 거래처 없는 품목 이관 안 함·⑬ 비매출처 = 매입처 확정 (이관 스크립트 반영) |
 | V3.25 | 2026-10-01 | **미구현 기능 정리·추가 계획** (§26): 구 폼 대비 미구현 목록, 구현 개념 결정 A~I (비가동 한 화면, 보전·측정기구 분리, 작업자 끌어다 놓기 배치, 라인검사, 경화깊이 그래프, SPC, 공정 확인 서명, 구 폼별 출력물, 모니터링 로테이션), 9~13단계. §12 ④ Community 유지·⑤ 업체 전용 양식 없음 |
@@ -1392,7 +1393,7 @@ t_income → sales_order + sales_order_item.
 - **t_downtime / t_maintenance:**
   - 설비는 이름으로 찾는다.
   - 자정을 넘는 비가동은 다음날 종료로 넣는다.
-  - 측정기구 점검 기록은 제외한다.
+  - 측정기구 점검 기록(instrumentid)은 측정기구 교정 이력(`instrument_calibration`)으로 옮긴다 (V3.28, §28.4). 측정기구의 최근·다음 교정일도 갱신.
 
 ### 이관하지 않는 표
 
@@ -1642,7 +1643,7 @@ t_income → sales_order + sales_order_item.
 | 순서 | 범위 | 상태 |
 |-|-|-|
 | 9-① | 비가동 (입력·현황 한 화면) + 공정검사 항목 기준정보 | V3.27 완료 |
-| 9-② | 설비 보전 + 측정기구 교정 이력 | 대기 |
+| 9-② | 설비 보전 + 측정기구 교정 이력 | V3.28 완료 |
 | 9-③ | 작업자 주·야 배치 보드 (끌어다 놓기) | 대기 |
 
 ## 28.1 비가동 — 9-① (구 F_DowntimeInput · F_DowntimeStatus, 결정 A)
@@ -1671,3 +1672,43 @@ t_income → sales_order + sales_order_item.
 ## 28.2 공정검사 항목 — 9-①
 
 기준정보 **공정검사 항목** (`master.unit_inspection_item`, 단순 기준정보 정의 — 화면·API 자동): 코드·이름·단위공정(비우면 공통)·순서·사용. 라인검사(11단계)의 측정 항목. 구 t_unitinspectionitem 6건은 이관됨.
+
+## 28.3 설비 보전 — 9-② (구 F_MaintenanceForm)
+
+화면 **설비 > 설비 보전** (`equipment.maintenance`).
+
+| 영역 | 내용 |
+|-|-|
+| 조건 | 기간(기본 두 달 전 1일~오늘), 설비, 상태, 검색(내용·부위·업체) |
+| 점검 예정 | 설비별 가장 최근 보전의 "다음 점검 예정일"이 지났거나(`지남`) 설정 `maintenance.due_soon_days`(기본 14일) 안이면(`임박`) 표시. 누르면 그 설비로 거름 |
+| 목록 | 보전일·설비·구분·상태·내용·부위·업체·작업자·비용·다음 점검·첨부 수, 아래 줄에 건수·비용 합계(취소 제외) |
+| 창 | 내용 탭: 설비, 구분(공통코드 `MAINTENANCE_TYPE`), 보전일, 상태(`MAINTENANCE_STATUS` 접수·진행·완료·취소), 시작·완료, 작업자, 수리·교체 부위, 외부 업체, 비용, 내용, 결과, 다음 점검 예정일. 사진·자료 탭: 공통 첨부(보전 사진 `MAINTENANCE_PHOTO`·기타) |
+
+| API (`/api/maintenances`) | 규칙 |
+|-|-|
+| `GET ?from&to&equipmentId&status&search`, `GET /due`, `GET /{id}` | 상세 = 보전 + 첨부 |
+| `POST` / `PUT /{id}` (row_version) / `DELETE /{id}?rowVersion` | 구분은 사용 중인 공통코드 (이관한 구 문자열은 바꾸지 않으면 그대로 저장 가능). 완료 ≥ 시작, 다음 점검일 ≥ 보전일, 비용 ≥ 0. **완료로 저장하는데 완료 시각이 없으면** 오늘 보전 = 지금, 지난 날짜 = 보전일(시작 시각이 있으면 시작 시각). 삭제는 첨부까지 |
+| `POST·GET·DELETE /{id}/attachments…` | 공통 첨부 (품목 첨부와 같은 규칙 — `AttachmentStore`) |
+
+- DDL: `maintenance` 에 `repair_part`·`vendor_name`·`cost`·`next_due_date`·`row_version` 추가 (구 repairpart·repaircost·nextrepairdate). 외부 업체는 구매관리(§27) 전까지 문자열.
+- 공통코드: `MAINTENANCE_TYPE`(사용자 관리 — 기본 수리·점검·예방정비·부품 교체), `MAINTENANCE_STATUS`(시스템), 첨부 종류 `MAINTENANCE_PHOTO`·`CALIBRATION_CERT`.
+- 공통 첨부 저장·조회·삭제를 `Infrastructure/Files/AttachmentStore` 로 모음 (품목·보전·교정이 같이 씀). 웹 `components/AttachmentList`.
+
+## 28.4 측정기구 교정 — 9-② (결정 B: 설비 보전과 별도)
+
+화면 **품질 > 측정기구 교정** (`quality.calibration`). 측정기구 자체(코드·이름·종류·교정 주기)는 기준정보 > 측정기구.
+
+| 영역 | 내용 |
+|-|-|
+| 왼쪽 | 측정기구별 상태(지남·임박·미정·정상 — 지남·임박 먼저), 주기, 최근·다음 교정일, 이력 수. 임박 기준 = 설정 `instrument.calibration_due_soon_days`(기본 30일) |
+| 오른쪽 | 선택한 기구의 교정 이력 + [교정 등록] |
+| 창 | 교정일, 판정(공통코드 `DECISION` — 합격·불합격·조건부, 항목 전용 '해당없음' 제외), 교정 기관, 성적서 번호, 다음 교정일, 비용, 비고. 성적서 파일 탭: 공통 첨부(`CALIBRATION_CERT`) |
+
+| API (`/api/calibrations`) | 규칙 |
+|-|-|
+| `GET /instruments?includeInactive`, `GET ?instrumentId`, `GET /{id}` | |
+| `POST` / `PUT /{id}` / `DELETE /{id}` | 저장·삭제마다 **측정기구 최근 교정일 = 마지막 교정일, 다음 교정일 = 그 교정의 다음 교정일(비우면 교정일 + 교정 주기)**. 더 오래된 교정을 넣어도 최근 값은 그대로, 최근 교정을 지우면 이전 교정으로 되돌림 |
+| `…/{id}/attachments` | 교정 성적서 파일 |
+
+- DDL: 테이블 `instrument_calibration` 신규.
+- 이관: 구 t_maintenance 중 측정기구 기록(instrumentid)은 `instrument_calibration` 으로 (설비 기록은 `maintenance`) — §25.3 갱신.

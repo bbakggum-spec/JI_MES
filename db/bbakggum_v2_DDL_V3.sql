@@ -1773,13 +1773,19 @@ CREATE TABLE maintenance (
     worker_employee_id  BIGINT UNSIGNED NULL,
     description         TEXT         NULL,
     result              TEXT         NULL,
+    repair_part         VARCHAR(100) NULL COMMENT '수리·교체 부위 (구 repairpart)',
+    vendor_name         VARCHAR(100) NULL COMMENT '외부 수리 업체 (구매관리 전까지 문자열)',
+    cost                DECIMAL(15,2) NULL COMMENT '비용 (구 repaircost)',
+    next_due_date       DATE         NULL COMMENT '다음 점검 예정일 (구 nextrepairdate)',
     status              VARCHAR(30)  NOT NULL DEFAULT 'OPEN',
+    row_version         INT UNSIGNED NOT NULL DEFAULT 0,
     created_at          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     created_by          BIGINT UNSIGNED NULL,
     updated_at          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     updated_by          BIGINT UNSIGNED NULL,
     PRIMARY KEY (maintenance_id),
     KEY ix_maintenance_equipment_date (equipment_id, maintenance_date),
+    KEY ix_maintenance_next_due (next_due_date),
     KEY ix_maintenance_worker (worker_employee_id),
     CONSTRAINT fk_maintenance_equipment
         FOREIGN KEY (equipment_id) REFERENCES equipment (equipment_id),
@@ -1789,7 +1795,29 @@ CREATE TABLE maintenance (
         CHECK (status IN ('OPEN','IN_PROGRESS','COMPLETED','CANCELLED')),
     CONSTRAINT ck_maintenance_period
         CHECK (completed_at IS NULL OR started_at IS NULL OR completed_at >= started_at)
-) ENGINE=InnoDB COMMENT='설비 보전/수리 (t_maintenance)';
+) ENGINE=InnoDB COMMENT='설비 보전/수리 (t_maintenance) — 보전 구분은 공통코드 MAINTENANCE_TYPE, 측정기구 교정은 instrument_calibration 으로 분리';
+
+CREATE TABLE instrument_calibration (
+    instrument_calibration_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    instrument_id       BIGINT UNSIGNED NOT NULL,
+    calibration_date    DATE         NOT NULL,
+    result              VARCHAR(30)  NOT NULL DEFAULT 'PASS' COMMENT '공통코드 DECISION (PASS / FAIL / CONDITIONAL)',
+    agency_name         VARCHAR(100) NULL COMMENT '교정 기관',
+    certificate_no      VARCHAR(100) NULL COMMENT '교정 성적서 번호 (파일은 attachment CALIBRATION_CERT)',
+    next_calibration_date DATE       NULL COMMENT '다음 교정일 — 비우면 교정 주기로 계산',
+    cost                DECIMAL(15,2) NULL,
+    remark              VARCHAR(500) NULL,
+    created_at          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by          BIGINT UNSIGNED NULL,
+    updated_at          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    updated_by          BIGINT UNSIGNED NULL,
+    PRIMARY KEY (instrument_calibration_id),
+    KEY ix_instrument_calibration_instrument_date (instrument_id, calibration_date),
+    CONSTRAINT fk_instrument_calibration_instrument
+        FOREIGN KEY (instrument_id) REFERENCES instrument (instrument_id),
+    CONSTRAINT ck_instrument_calibration_next
+        CHECK (next_calibration_date IS NULL OR next_calibration_date >= calibration_date)
+) ENGINE=InnoDB COMMENT='측정기구 교정 이력 (설계 §26.2 B — 설비 보전과 별도). 최근 교정일·다음 교정일은 instrument 에 반영';
 
 -- =====================================================================
 -- 9.5 출력 이력
@@ -2065,6 +2093,8 @@ INSERT INTO system_setting (setting_key, category, setting_name, value_type, def
  ('file.storage_root',                '파일',   '첨부 파일 저장 위치 (서버)',        'PATH',    'D:\\MES\\Files', NULL, NULL, NULL, '조직사진·경화층 차트 등 — 구 BaseDirectory\\Files 하위 (PC별)', 1, 10),
  ('file.max_attachment_mb',           '파일',   '첨부 파일 최대 크기',               'INT',     '20',    1, 200, 'MB', '도면·이미지 등 attachment 1건 — DB max_allowed_packet 이하', 0, 20),
  ('dashboard.trend_days',             '시스템', '대시보드 추이 기간',                'INT',     '14',    1, 92, '일', '일별 입고·출하 금액, 부적합 건수 (구 F_DashForm)', 0, 60),
+ ('maintenance.due_soon_days',        '설비',   '보전 점검 임박 기준',               'INT',     '14',    0, 365, '일', '다음 점검 예정일이 이 일수 안이면 "임박" 표시', 0, 10),
+ ('instrument.calibration_due_soon_days', '설비', '측정기구 교정 임박 기준',         'INT',     '30',    0, 365, '일', '다음 교정일이 이 일수 안이면 "임박" 표시', 0, 20),
  ('log.retention_days',               '시스템', '로그 보관 일수',                    'INT',     '7',     1, 365, '일', '구 AppLogger 7일', 1, 10),
  ('work.complete_time_round_min',     '생산',   '완료시각 단위 (내림)',              'INT',     '5',     1, 60, '분', '구 RoundToNearest5Minutes (실제 동작은 내림)', 0, 10),
  ('sales_order.number_format',        '영업',   '수주 묶음 번호 형식',               'STRING',  'SO{yyMMdd}-{SEQ:000}', NULL, NULL, NULL, '한 번에 등록한 입고 행들의 묶음 (구는 묶음 없음)', 0, 25),
@@ -2100,7 +2130,9 @@ INSERT INTO common_code_group (group_code, group_name, description) VALUES
  ('INSPECTION_STATUS',   '검사 상태',     'inspection.status CHECK 값 (저장=미확정, 확정)'),
  ('DEFECT_STATUS',       '부적합 상태',   'defect_occurrence.status CHECK 값 (구 check_complete·plan_complete)'),
  ('CLOSING_RUN_STATUS',  '마감 실행 상태', 'shipment_closing.closing_status CHECK 값'),
- ('DOWNTIME_REASON',     '비가동 사유',   'equipment_downtime.reason_code — 구 t_combolist 비가동사유 (사용자 관리, 이관 시 채움)');
+ ('DOWNTIME_REASON',     '비가동 사유',   'equipment_downtime.reason_code — 구 t_combolist 비가동사유 (사용자 관리, 이관 시 채움)'),
+ ('MAINTENANCE_TYPE',    '보전 구분',     'maintenance.maintenance_type — 수리·점검·예방정비 등 (사용자 관리)'),
+ ('MAINTENANCE_STATUS',  '보전 상태',     'maintenance.status CHECK 값');
 
 INSERT INTO common_code (common_code_group_id, code, code_name, sort_order, attr_json, is_system)
 SELECT g.common_code_group_id, v.code, v.name, v.ord, v.attr, 1
@@ -2179,7 +2211,22 @@ SELECT g.common_code_group_id, v.code, v.name, v.ord, v.attr, 1
         UNION ALL SELECT 'DEFECT_STATUS', 'CANCELLED', '취소', 5, '{"color":"#BFBFBF"}'
         UNION ALL SELECT 'CLOSING_RUN_STATUS', 'OPEN', '진행', 1, NULL
         UNION ALL SELECT 'CLOSING_RUN_STATUS', 'CLOSED', '마감', 2, '{"color":"#52C41A"}'
-        UNION ALL SELECT 'CLOSING_RUN_STATUS', 'REOPENED', '마감 취소', 3, '{"color":"#BFBFBF"}') v
+        UNION ALL SELECT 'CLOSING_RUN_STATUS', 'REOPENED', '마감 취소', 3, '{"color":"#BFBFBF"}'
+        UNION ALL SELECT 'MAINTENANCE_STATUS', 'OPEN', '접수', 1, '{"color":"#FA8C16"}'
+        UNION ALL SELECT 'MAINTENANCE_STATUS', 'IN_PROGRESS', '진행', 2, '{"color":"#1677FF"}'
+        UNION ALL SELECT 'MAINTENANCE_STATUS', 'COMPLETED', '완료', 3, '{"color":"#52C41A"}'
+        UNION ALL SELECT 'MAINTENANCE_STATUS', 'CANCELLED', '취소', 4, '{"color":"#BFBFBF"}'
+        UNION ALL SELECT 'ATTACHMENT_KIND', 'MAINTENANCE_PHOTO', '보전 사진', 6, '{"owner":"maintenance","image":true}'
+        UNION ALL SELECT 'ATTACHMENT_KIND', 'CALIBRATION_CERT', '교정 성적서', 7, '{"owner":"instrument_calibration"}') v
+  JOIN common_code_group g ON g.group_code = v.grp;
+
+-- 사용자 관리 공통코드 기본값 (is_system = 0: 추가·변경·중지 가능)
+INSERT INTO common_code (common_code_group_id, code, code_name, sort_order)
+SELECT g.common_code_group_id, v.code, v.name, v.ord
+  FROM (SELECT 'MAINTENANCE_TYPE' grp, 'REPAIR' code, '수리' name, 1 ord
+        UNION ALL SELECT 'MAINTENANCE_TYPE', 'INSPECT', '점검', 2
+        UNION ALL SELECT 'MAINTENANCE_TYPE', 'PREVENTIVE', '예방정비', 3
+        UNION ALL SELECT 'MAINTENANCE_TYPE', 'REPLACE', '부품 교체', 4) v
   JOIN common_code_group g ON g.group_code = v.grp;
 
 -- =====================================================================
@@ -2262,6 +2309,8 @@ SELECT v.k, v.n, p.menu_id, v.r, v.o
         UNION ALL SELECT 'system.audit',   '변경 이력',   'system', '/system/audit-logs', 50
         UNION ALL SELECT 'system.print',   '출력 양식',   'system', '/system/print-templates', 60
         UNION ALL SELECT 'equipment.downtime', '비가동', 'equipment', '/equipment/downtime', 10
+        UNION ALL SELECT 'equipment.maintenance', '설비 보전', 'equipment', '/equipment/maintenance', 20
+        UNION ALL SELECT 'quality.calibration', '측정기구 교정', 'quality', '/quality/calibrations', 30
         UNION ALL SELECT 'master.unit_inspection_item', '공정검사 항목', 'master', '/master/unit-inspection-item', 68) v
   JOIN menu p ON p.menu_key = v.parent;
 

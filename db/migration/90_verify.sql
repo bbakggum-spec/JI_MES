@@ -72,7 +72,8 @@ CALL bbakggum_mig.verify_count('부적합', 'bbakggum_legacy.t_defect', 'defecti
 CALL bbakggum_mig.verify_count('출하 전표', 'bbakggum_legacy.t_outcomesum', 'outcomesumid', 't_outcomesum', 'shipment');
 CALL bbakggum_mig.verify_count('출하 상세', 'bbakggum_legacy.t_outcome', 'outcomeid', 't_outcome', 'shipment_item');
 CALL bbakggum_mig.verify_count('설비 비가동', 'bbakggum_legacy.t_downtime', 'id', 't_downtime', 'equipment_downtime');
-CALL bbakggum_mig.verify_count('설비 보전', 'bbakggum_legacy.t_maintenance', 'id', 't_maintenance', 'maintenance');
+CALL bbakggum_mig.verify_count('설비 보전', 'bbakggum_legacy.t_maintenance WHERE COALESCE(instrumentid, 0) = 0', 'id', 't_maintenance', 'maintenance');
+CALL bbakggum_mig.verify_count('측정기구 교정', 'bbakggum_legacy.t_maintenance WHERE COALESCE(instrumentid, 0) <> 0', 'id', 't_maintenance', 'instrument_calibration');
 
 -- 검사 대상: 행 단위. 검사(검사번호) 자체가 제외됐으면 그 대상도 설명됨
 INSERT INTO bbakggum_mig.verify_result (check_group, check_name, legacy_value, new_value, skipped, result, note)

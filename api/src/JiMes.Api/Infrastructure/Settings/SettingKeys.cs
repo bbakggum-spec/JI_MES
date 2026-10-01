@@ -33,6 +33,8 @@ public static class SettingKeys
     public const string ShipmentNumberFormat = "shipment.number_format";
     public const string ClosingNumberFormat = "shipment_closing.number_format";
     public const string DashboardTrendDays = "dashboard.trend_days";
+    public const string MaintenanceDueSoonDays = "maintenance.due_soon_days";
+    public const string InstrumentCalibrationDueSoonDays = "instrument.calibration_due_soon_days";
 
     /// <summary>
     /// 로그인 사용자 누구나 읽을 수 있는 설정 (GET /api/client-settings). 웹 화면 동작에 필요한 값만 둔다.

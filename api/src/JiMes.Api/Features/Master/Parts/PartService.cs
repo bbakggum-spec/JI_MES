@@ -1,11 +1,10 @@
-using System.Security.Cryptography;
 using Dapper;
 using JiMes.Api.Infrastructure.Audit;
 using JiMes.Api.Infrastructure.Codes;
 using JiMes.Api.Infrastructure.Data;
 using JiMes.Api.Infrastructure.Errors;
+using JiMes.Api.Infrastructure.Files;
 using JiMes.Api.Infrastructure.Security;
-using JiMes.Api.Infrastructure.Settings;
 using MySqlConnector;
 
 namespace JiMes.Api.Features.Master.Parts;
@@ -16,7 +15,7 @@ namespace JiMes.Api.Features.Master.Parts;
 /// 도면·이미지는 공통 첨부(attachment)로 DB 에 보관 (구 PC 폴더 PartDrawingFolder·PartImageFolder 폐지).
 /// </summary>
 public sealed class PartService(
-    IDbConnectionFactory db, CommonCodeCache codes, SettingsCache settings, AuditWriter audit, ICurrentUser currentUser)
+    IDbConnectionFactory db, CommonCodeCache codes, AuditWriter audit, ICurrentUser currentUser, AttachmentStore attachments)
 {
     public const string AttachmentOwner = "part";
 
@@ -226,62 +225,14 @@ public sealed class PartService(
 
     // ───────────────────────── 첨부 ─────────────────────────
 
-    public async Task<long> AddAttachmentAsync(long partId, string kind, string fileName, string? contentType, byte[] content, string? caption, CancellationToken ct)
-    {
-        var maxMb = settings.GetInt(SettingKeys.FileMaxAttachmentMb);
-        if (content.Length == 0 || content.Length > maxMb * 1024L * 1024L)
-            throw new RequestValidationException("file", $"첨부 파일은 {maxMb}MB 이하여야 합니다.");
-        var kindCode = codes.GetGroup("ATTACHMENT_KIND").Codes.FirstOrDefault(c => c.Code == kind && c.IsActive)
-            ?? throw new RequestValidationException("kind", "허용되지 않는 첨부 종류입니다.");
-        if (kindCode.AttrJson is { } attr && attr.Contains("\"owner\"") && !attr.Contains($"\"owner\":\"{AttachmentOwner}\""))
-            throw new RequestValidationException("kind", $"'{kindCode.CodeName}' 은 품목 첨부가 아닙니다.");
+    public Task<long> AddAttachmentAsync(long partId, string kind, string fileName, string? contentType, byte[] content, string? caption, CancellationToken ct) =>
+        attachments.AddAsync(AttachmentOwner, partId, kind, fileName, contentType, content, caption, ct);
 
-        await using var conn = await db.OpenAsync(ct);
-        await using var tx = await conn.BeginTransactionAsync(ct);
-        if (await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM part WHERE part_id = @partId", new { partId }, tx) == 0)
-            throw new NotFoundException("part", partId);
-        var hash = Convert.ToHexStringLower(SHA256.HashData(content));
-        var id = await conn.ExecuteScalarAsync<long>(
-            """
-            INSERT INTO attachment (owner_table, owner_id, attachment_kind, file_name, content_type, file_content, file_hash, file_size, caption,
-                                    sort_order, created_by)
-            VALUES (@owner, @partId, @kind, @fileName, @contentType, @content, @hash, @size, @caption,
-                    (SELECT COALESCE(MAX(a.sort_order), 0) + 1 FROM attachment a WHERE a.owner_table = @owner AND a.owner_id = @partId), @userId);
-            SELECT LAST_INSERT_ID();
-            """,
-            new
-            {
-                owner = AttachmentOwner, partId, kind, fileName = Path.GetFileName(fileName), contentType, content, hash, size = content.Length,
-                caption = string.IsNullOrWhiteSpace(caption) ? null : caption.Trim(), userId = currentUser.UserId,
-            }, tx);
-        await audit.WriteAsync(conn, tx, AuditAction.Create, "attachment", id, null,
-            new { owner_table = AttachmentOwner, owner_id = partId, attachment_kind = kind, file_name = fileName, file_size = content.Length, file_hash = hash });
-        await tx.CommitAsync(ct);
-        return id;
-    }
+    public Task<(byte[] Content, string FileName, string ContentType)> GetAttachmentAsync(long partId, long attachmentId, CancellationToken ct) =>
+        attachments.GetAsync(AttachmentOwner, partId, attachmentId, ct);
 
-    public async Task<(byte[] Content, string FileName, string ContentType)> GetAttachmentAsync(long partId, long attachmentId, CancellationToken ct)
-    {
-        await using var conn = await db.OpenAsync(ct);
-        var row = await conn.QuerySingleOrDefaultAsync<(byte[]? Content, string FileName, string? ContentType)>(
-            "SELECT file_content, file_name, content_type FROM attachment WHERE attachment_id = @attachmentId AND owner_table = @owner AND owner_id = @partId",
-            new { attachmentId, partId, owner = AttachmentOwner });
-        if (row.Content is null)
-            throw new NotFoundException("attachment", attachmentId);
-        return (row.Content, row.FileName, row.ContentType ?? "application/octet-stream");
-    }
-
-    public async Task DeleteAttachmentAsync(long partId, long attachmentId, CancellationToken ct)
-    {
-        await using var conn = await db.OpenAsync(ct);
-        await using var tx = await conn.BeginTransactionAsync(ct);
-        var before = await conn.QuerySingleOrDefaultAsync<AttachmentDto>(
-            "SELECT attachment_id, attachment_kind, file_name, content_type, file_size, caption, created_at FROM attachment WHERE attachment_id = @attachmentId AND owner_table = @owner AND owner_id = @partId",
-            new { attachmentId, partId, owner = AttachmentOwner }, tx) ?? throw new NotFoundException("attachment", attachmentId);
-        await conn.ExecuteAsync("DELETE FROM attachment WHERE attachment_id = @attachmentId", new { attachmentId }, tx);
-        await audit.WriteAsync(conn, tx, AuditAction.Delete, "attachment", attachmentId, before, null);
-        await tx.CommitAsync(ct);
-    }
+    public Task DeleteAttachmentAsync(long partId, long attachmentId, CancellationToken ct) =>
+        attachments.DeleteAsync(AttachmentOwner, partId, attachmentId, ct);
 
     // ───────────────────────── 내부 ─────────────────────────
 
@@ -313,12 +264,8 @@ public sealed class PartService(
              WHERE ph.part_id = @partId AND ph.is_active = 1 ORDER BY ph.is_default DESC, h.heat_process_name
             """, new { partId }, tx);
         var templates = await conn.QueryAsync<PartPrintTemplateDto>(PrintTemplateSelect, new { partId }, tx);
-        var attachments = await conn.QueryAsync<AttachmentDto>(
-            """
-            SELECT attachment_id, attachment_kind, file_name, content_type, file_size, caption, created_at
-              FROM attachment WHERE owner_table = @owner AND owner_id = @partId ORDER BY attachment_kind, sort_order
-            """, new { owner = AttachmentOwner, partId }, tx);
-        return new PartDetail(part, customers.ToList(), processes.ToList(), templates.ToList(), attachments.ToList());
+        var files = await AttachmentStore.ListAsync(conn, tx, AttachmentOwner, partId);
+        return new PartDetail(part, customers.ToList(), processes.ToList(), templates.ToList(), files);
     }
 
     /// <summary>이력·감사용 — 계산 컬럼(갱신 시각, 첨부 수 등)은 뺀다</summary>

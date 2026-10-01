@@ -159,29 +159,52 @@ UPDATE equipment_downtime n JOIN migration_id_map m ON m.new_table = 'equipment_
    SET n.remark = s.remark;
 
 -- ---------------------------------------------------------------------
--- 설비 보전 (t_maintenance — 설비 대상만. 측정기구 점검 기록(instrumentid)은 신규 maintenance 대상이 아님)
+-- 설비 보전 (t_maintenance 설비 기록) / 측정기구 교정 (같은 표의 측정기구 기록 instrumentid) — 신규는 분리 (설계 §26.2 B, §28.3)
+-- 보전 구분: 구 repairtype 문자열 → 공통코드 MAINTENANCE_TYPE 표시명이 같으면 코드, 아니면 문자열 그대로 (화면은 코드 표시명 없으면 원문)
 -- ---------------------------------------------------------------------
 CREATE TEMPORARY TABLE s_maint (PRIMARY KEY (lk)) AS
 SELECT CAST(t.id AS CHAR(200)) AS lk, bbakggum_mig.new_id('t_equipment', CAST(t.equipmentid AS CHAR), 'equipment') AS equipment_id,
-       LEFT(COALESCE(NULLIF(TRIM(t.repairtype), ''), NULLIF(TRIM(t.recordtype), ''), '수리'), 50) AS maintenance_type, t.repairdate,
-       NULLIF(CONCAT_WS(' / ', NULLIF(TRIM(t.repairpart), ''), NULLIF(TRIM(t.repairmemo), ''),
-                               IF(NULLIF(TRIM(t.worker), '') IS NULL, NULL, CONCAT('작업자 ', TRIM(t.worker)))), '') AS description,
-       NULLIF(CONCAT_WS(' / ', IF(t.repaircost IS NULL, NULL, CONCAT('비용 ', t.repaircost)),
-                               IF(t.nextrepairdate IS NULL, NULL, CONCAT('다음 점검 ', t.nextrepairdate))), '') AS result,
-       t.instrumentid,
-       (SELECT m.new_id FROM migration_id_map m WHERE m.legacy_table = 't_maintenance' AND m.legacy_key = CAST(t.id AS CHAR) AND m.new_table = 'maintenance') AS new_id
+       bbakggum_mig.new_id('t_instruments', CAST(t.instrumentid AS CHAR), 'instrument') AS instrument_id,
+       LEFT(COALESCE(bbakggum_mig.code_by_name('MAINTENANCE_TYPE', t.repairtype), NULLIF(TRIM(t.repairtype), ''),
+                     (SELECT c.code FROM common_code c JOIN common_code_group g USING (common_code_group_id)
+                       WHERE g.group_code = 'MAINTENANCE_TYPE' ORDER BY c.sort_order LIMIT 1)), 50) AS maintenance_type,
+       t.repairdate, LEFT(NULLIF(TRIM(t.repairpart), ''), 100) AS repair_part, t.repaircost AS cost,
+       IF(t.nextrepairdate >= t.repairdate, t.nextrepairdate, NULL) AS next_due_date,
+       NULLIF(CONCAT_WS(' / ', NULLIF(TRIM(t.repairmemo), ''), IF(NULLIF(TRIM(t.worker), '') IS NULL, NULL, CONCAT('작업자 ', TRIM(t.worker)))), '') AS description,
+       NULLIF(CONCAT_WS(' / ', NULLIF(TRIM(t.repairtype), ''), NULLIF(TRIM(t.repairpart), ''), NULLIF(TRIM(t.repairmemo), ''),
+                               IF(NULLIF(TRIM(t.worker), '') IS NULL, NULL, CONCAT('작업자 ', TRIM(t.worker)))), '') AS calibration_remark,
+       COALESCE(t.instrumentid, 0) <> 0 AS is_instrument,
+       (SELECT m.new_id FROM migration_id_map m WHERE m.legacy_table = 't_maintenance' AND m.legacy_key = CAST(t.id AS CHAR)
+           AND m.new_table IN ('maintenance', 'instrument_calibration') LIMIT 1) AS new_id
   FROM bbakggum_legacy.t_maintenance t;
 INSERT INTO bbakggum_mig.issue (step, legacy_table, legacy_key, issue_code, detail)
-SELECT 'shipment', 't_maintenance', lk, 'SKIPPED', IF(COALESCE(instrumentid, 0) <> 0, '측정기구 점검 기록 — 설비 보전 아님', '설비 없음')
-  FROM s_maint WHERE new_id IS NULL AND (equipment_id IS NULL OR repairdate IS NULL);
-INSERT INTO maintenance (equipment_id, maintenance_type, maintenance_date, description, result, status)
-SELECT equipment_id, maintenance_type, repairdate, CONCAT('#mig:', lk), result, 'COMPLETED'
-  FROM s_maint WHERE new_id IS NULL AND equipment_id IS NOT NULL AND repairdate IS NOT NULL;
+SELECT 'shipment', 't_maintenance', lk, 'SKIPPED', IF(is_instrument, '측정기구 없음', '설비 없음')
+  FROM s_maint WHERE new_id IS NULL AND (repairdate IS NULL OR IF(is_instrument, instrument_id IS NULL, equipment_id IS NULL));
+
+INSERT INTO maintenance (equipment_id, maintenance_type, maintenance_date, description, repair_part, cost, next_due_date, status, completed_at)
+SELECT equipment_id, maintenance_type, repairdate, CONCAT('#mig:', lk), repair_part, cost, next_due_date, 'COMPLETED', repairdate
+  FROM s_maint WHERE new_id IS NULL AND NOT is_instrument AND equipment_id IS NOT NULL AND repairdate IS NOT NULL;
 INSERT INTO migration_id_map (legacy_table, legacy_key, new_table, new_id)
 SELECT 't_maintenance', s.lk, 'maintenance', n.maintenance_id
   FROM s_maint s JOIN maintenance n ON n.description = CONCAT('#mig:', s.lk) WHERE s.new_id IS NULL;
 UPDATE maintenance n JOIN migration_id_map m ON m.new_table = 'maintenance' AND m.new_id = n.maintenance_id AND m.legacy_table = 't_maintenance'
   JOIN s_maint s ON s.lk = m.legacy_key AND s.new_id IS NULL
    SET n.description = s.description;
+
+INSERT INTO instrument_calibration (instrument_id, calibration_date, result, next_calibration_date, cost, remark)
+SELECT instrument_id, repairdate, 'PASS', next_due_date, cost, CONCAT('#mig:', lk)
+  FROM s_maint WHERE new_id IS NULL AND is_instrument AND instrument_id IS NOT NULL AND repairdate IS NOT NULL;
+INSERT INTO migration_id_map (legacy_table, legacy_key, new_table, new_id)
+SELECT 't_maintenance', s.lk, 'instrument_calibration', n.instrument_calibration_id
+  FROM s_maint s JOIN instrument_calibration n ON n.remark = CONCAT('#mig:', s.lk) WHERE s.new_id IS NULL;
+UPDATE instrument_calibration n JOIN migration_id_map m ON m.new_table = 'instrument_calibration' AND m.new_id = n.instrument_calibration_id AND m.legacy_table = 't_maintenance'
+  JOIN s_maint s ON s.lk = m.legacy_key AND s.new_id IS NULL
+   SET n.remark = LEFT(s.calibration_remark, 500);
+-- 측정기구의 최근·다음 교정일 = 마지막 교정 기록
+UPDATE instrument i
+  JOIN (SELECT c.instrument_id, MAX(c.calibration_date) AS last_date FROM instrument_calibration c GROUP BY c.instrument_id) x ON x.instrument_id = i.instrument_id
+   SET i.last_calibrated_date = x.last_date,
+       i.next_calibration_date = COALESCE((SELECT c.next_calibration_date FROM instrument_calibration c WHERE c.instrument_id = i.instrument_id
+                                            ORDER BY c.calibration_date DESC, c.instrument_calibration_id DESC LIMIT 1), i.next_calibration_date);
 
 COMMIT;
