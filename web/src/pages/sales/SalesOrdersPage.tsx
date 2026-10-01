@@ -4,10 +4,12 @@ import {
   Alert, App, Button, Checkbox, Col, DatePicker, Descriptions, Form, Input, InputNumber, Popconfirm, Row, Select, Space, Switch,
   Table, Tag, Tooltip, Typography,
 } from 'antd'
+import type { ColumnsType } from 'antd/es/table'
 import dayjs, { type Dayjs } from 'dayjs'
 import { useMemo, useState } from 'react'
 import { ApiError, api } from '../../api/client'
 import { useCan } from '../../auth/useAuth'
+import ExportButton from '../../components/ExportButton'
 import EditorWindow from '../../components/EditorWindow'
 import PrintButton from '../../components/PrintButton'
 import { useClientSettings } from '../../hooks/useClientSettings'
@@ -54,6 +56,35 @@ export default function SalesOrdersPage({ menuKey }: PageProps) {
   const rows = list.data?.items ?? []
   const refresh = () => void queryClient.invalidateQueries({ queryKey: queryKeys.sales })
 
+  // 표·내보내기 공용 열 (내보내기 = 화면 표시 글자 그대로)
+  const listColumns: ColumnsType<OrderItem> = [
+      { title: '입고일', dataIndex: 'orderDate', width: 95, fixed: 'left', render: (d: string) => dayjs(d).format(DATE) },
+      { title: '입고번호', dataIndex: 'orderItemNo', width: 125, fixed: 'left', render: (no: string, r) => <Typography.Text strong={r.priority >= 2}>{no}</Typography.Text> },
+      { title: '거래처', dataIndex: 'customerName', width: 110, ellipsis: true },
+      {
+        title: '품목', ellipsis: true, render: (_: unknown, r) => (
+          <>{r.partName}{r.partNumber && <Typography.Text type="secondary"> {r.partNumber}</Typography.Text>}{r.isReturn && <Tag color="purple" style={{ marginLeft: 4 }}>반입</Tag>}</>
+        ),
+      },
+      { title: '공정', dataIndex: 'heatProcessName', width: 100, render: (n: string | null) => n ?? <Typography.Text type="danger">미지정</Typography.Text> },
+      { title: '수량', dataIndex: 'orderQty', width: 80, align: 'right', render: qty },
+      { title: '투입', dataIndex: 'mainInputQty', width: 70, align: 'right', render: qty },
+      { title: '출하', dataIndex: 'shipmentQty', width: 70, align: 'right', render: qty },
+      { title: '출하 잔량', dataIndex: 'remainingShipmentQty', width: 80, align: 'right', render: qty },
+      {
+        title: '우선', dataIndex: 'priority', width: 60,
+        render: (p: number) => <Tag color={codes.attr<{ color?: string }>('PRIORITY', String(p))?.color}>{codes.name('PRIORITY', String(p))}</Tag>,
+      },
+      {
+        title: '상태', dataIndex: 'status', width: 70,
+        render: (s: string) => <Tag color={codes.attr<{ color?: string }>('ORDER_STATUS', s)?.color}>{codes.name('ORDER_STATUS', s)}</Tag>,
+      },
+      { title: '고객LOT', dataIndex: 'customerLot', width: 100, ellipsis: true },
+      { title: '작업지시', dataIndex: 'customerWorkOrderNo', width: 100, ellipsis: true },
+      { title: '별도', dataIndex: 'isSeparatelyManaged', width: 50, align: 'center', render: (v: boolean) => v && <Tooltip title="별도관리"><Tag color="red">별</Tag></Tooltip> },
+      { title: '비고', dataIndex: 'remark', width: 140, ellipsis: true },
+    ]
+
   return (
     <>
       <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 8 }} wrap>
@@ -65,6 +96,7 @@ export default function SalesOrdersPage({ menuKey }: PageProps) {
           <Space size={4}><Switch size="small" checked={openOnly} onChange={setOpenOnly} />미출하만</Space>
           <Space size={4}><Switch size="small" checked={includeCancelled} onChange={setIncludeCancelled} />취소 포함</Space>
           {/* 구 F_IncomeForm 출력 — 고른 입고 행마다 1장, 한 파일로 */}
+          <ExportButton title="수주(입고)" columns={listColumns} rows={rows} />
           <PrintButton purposeCode="PROCESS_SHEET" sourceIds={selected}>공정이동표</PrintButton>
           <PrintButton purposeCode="PRODUCT_LABEL" sourceIds={selected}>제품표시 라벨</PrintButton>
           {canCreate && <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreating(true)}>수주 등록</Button>}
@@ -85,33 +117,7 @@ export default function SalesOrdersPage({ menuKey }: PageProps) {
             <Table.Summary.Cell index={9} colSpan={7} />
           </Table.Summary.Row>
         )}
-        columns={[
-          { title: '입고일', dataIndex: 'orderDate', width: 95, fixed: 'left', render: (d: string) => dayjs(d).format(DATE) },
-          { title: '입고번호', dataIndex: 'orderItemNo', width: 125, fixed: 'left', render: (no: string, r) => <Typography.Text strong={r.priority >= 2}>{no}</Typography.Text> },
-          { title: '거래처', dataIndex: 'customerName', width: 110, ellipsis: true },
-          {
-            title: '품목', ellipsis: true, render: (_: unknown, r) => (
-              <>{r.partName}{r.partNumber && <Typography.Text type="secondary"> {r.partNumber}</Typography.Text>}{r.isReturn && <Tag color="purple" style={{ marginLeft: 4 }}>반입</Tag>}</>
-            ),
-          },
-          { title: '공정', dataIndex: 'heatProcessName', width: 100, render: (n: string | null) => n ?? <Typography.Text type="danger">미지정</Typography.Text> },
-          { title: '수량', dataIndex: 'orderQty', width: 80, align: 'right', render: qty },
-          { title: '투입', dataIndex: 'mainInputQty', width: 70, align: 'right', render: qty },
-          { title: '출하', dataIndex: 'shipmentQty', width: 70, align: 'right', render: qty },
-          { title: '출하 잔량', dataIndex: 'remainingShipmentQty', width: 80, align: 'right', render: qty },
-          {
-            title: '우선', dataIndex: 'priority', width: 60,
-            render: (p: number) => <Tag color={codes.attr<{ color?: string }>('PRIORITY', String(p))?.color}>{codes.name('PRIORITY', String(p))}</Tag>,
-          },
-          {
-            title: '상태', dataIndex: 'status', width: 70,
-            render: (s: string) => <Tag color={codes.attr<{ color?: string }>('ORDER_STATUS', s)?.color}>{codes.name('ORDER_STATUS', s)}</Tag>,
-          },
-          { title: '고객LOT', dataIndex: 'customerLot', width: 100, ellipsis: true },
-          { title: '작업지시', dataIndex: 'customerWorkOrderNo', width: 100, ellipsis: true },
-          { title: '별도', dataIndex: 'isSeparatelyManaged', width: 50, align: 'center', render: (v: boolean) => v && <Tooltip title="별도관리"><Tag color="red">별</Tag></Tooltip> },
-          { title: '비고', dataIndex: 'remark', width: 140, ellipsis: true },
-        ]} />
+        columns={listColumns} />
       {creating && <NewOrderWindow onClose={() => setCreating(false)} onSaved={() => { setCreating(false); refresh() }} />}
       {editing !== null && <ItemWindow itemId={editing} menuKey={menuKey} onClose={() => setEditing(null)} onChanged={refresh} />}
     </>

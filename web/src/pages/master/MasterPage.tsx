@@ -9,7 +9,9 @@ import type { ColumnsType } from 'antd/es/table'
 import dayjs from 'dayjs'
 import { useState } from 'react'
 import { ApiError, api, fieldErrors } from '../../api/client'
+import { fetchAllPages } from '../../api/paging'
 import { useCan } from '../../auth/useAuth'
+import ExportButton from '../../components/ExportButton'
 import { useCommonCodes } from '../../hooks/useCommonCodes'
 import { queryKeys } from '../../queryKeys'
 import type { PageProps } from '../registry'
@@ -99,6 +101,12 @@ export default function MasterPage({ menuKey }: PageProps) {
           {m.hasActive && (
             <Space size={4}><Switch size="small" checked={includeInactive} onChange={(v) => { setIncludeInactive(v); setPage(1) }} />사용 중지 포함</Space>
           )}
+          <ExportButton title={m.label} columns={columns} fetchRows={() => fetchAllPages((page, pageSize) => {
+            const q = new URLSearchParams(params)
+            q.set('page', String(page))
+            q.set('pageSize', String(pageSize))
+            return api<{ items: MasterRow[]; total: number }>(`/api/master/${entity}?${q}`)
+          })} />
           {canCreate && <Button type="primary" icon={<PlusOutlined />} onClick={() => setEditing('new')}>추가</Button>}
         </Space>
       </Space>

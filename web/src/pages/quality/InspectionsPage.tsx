@@ -3,10 +3,12 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Alert, App, Button, Col, DatePicker, Form, Input, Popconfirm, Row, Select, Space, Table, Tag, Tooltip, Typography,
 } from 'antd'
+import type { ColumnsType } from 'antd/es/table'
 import dayjs, { type Dayjs } from 'dayjs'
 import { useMemo, useState } from 'react'
 import { ApiError, api, apiFile, saveFile } from '../../api/client'
 import { useCan } from '../../auth/useAuth'
+import ExportButton from '../../components/ExportButton'
 import EditorWindow from '../../components/EditorWindow'
 import { useClientSettings } from '../../hooks/useClientSettings'
 import { useCommonCodes } from '../../hooks/useCommonCodes'
@@ -41,6 +43,18 @@ export default function InspectionsPage({ menuKey }: PageProps) {
   })
   const colorOf = (group: string, code: string | null) => (code ? codes.attr<{ color?: string }>(group, code)?.color : undefined)
 
+  // 표·내보내기 공용 열 (내보내기 = 화면 표시 글자 그대로)
+  const listColumns: ColumnsType<Inspection> = [
+      { title: '검사일', dataIndex: 'inspectionDate', width: 95, render: (d: string) => dayjs(d).format(DATE) },
+      { title: '검사번호', dataIndex: 'inspectionNo', width: 130, render: (no: string, r) => <>{no}{r.reinspectionOfNo && <Tooltip title={`${r.reinspectionOfNo} 재검사`}><Tag style={{ marginLeft: 4 }}>재</Tag></Tooltip>}</> },
+      { title: '구분', dataIndex: 'inspectionType', width: 80, render: (t: string) => codes.name('INSPECTION_TYPE', t) },
+      { title: 'LOT', dataIndex: 'lotNo', width: 130 },
+      { title: '대상', render: (_: unknown, r) => <>{r.targetSummary}<Typography.Text type="secondary"> ({r.targetCount})</Typography.Text></> },
+      { title: '판정', dataIndex: 'decision', width: 80, render: (d: string | null) => d && <Tag color={colorOf('DECISION', d)}>{codes.name('DECISION', d)}</Tag> },
+      { title: '상태', dataIndex: 'status', width: 100, render: (s: string) => <Tag color={colorOf('INSPECTION_STATUS', s)}>{codes.name('INSPECTION_STATUS', s)}</Tag> },
+      { title: '검사자', dataIndex: 'inspectorName', width: 90 },
+    ]
+
   return (
     <>
       <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 8 }} wrap>
@@ -50,22 +64,14 @@ export default function InspectionsPage({ menuKey }: PageProps) {
           <Select allowClear placeholder="검사구분 전체" style={{ width: 130 }} value={type} onChange={setType}
             options={codes.options('INSPECTION_TYPE').map((c) => ({ value: c.code, label: c.codeName }))} />
           <Input.Search allowClear placeholder="검사번호·LOT·품명·입고번호" style={{ width: 230 }} onSearch={(v) => setSearch(v.trim())} />
+          <ExportButton title="검사" columns={listColumns} rows={list.data ?? []} />
           {canCreate && <Button type="primary" icon={<PlusOutlined />} onClick={() => setEditing('new')}>검사 등록</Button>}
         </Space>
       </Space>
       <Table<Inspection> rowKey="inspectionId" size="small" loading={list.isFetching} dataSource={list.data ?? []} scroll={{ x: 1100 }}
         pagination={{ defaultPageSize: 50, showSizeChanger: true, showTotal: (n) => `${n}건` }}
         onRow={(r) => ({ onClick: () => setEditing(r.inspectionId), style: { cursor: 'pointer', opacity: r.status === 'CANCELLED' ? 0.5 : 1 } })}
-        columns={[
-          { title: '검사일', dataIndex: 'inspectionDate', width: 95, render: (d: string) => dayjs(d).format(DATE) },
-          { title: '검사번호', dataIndex: 'inspectionNo', width: 130, render: (no: string, r) => <>{no}{r.reinspectionOfNo && <Tooltip title={`${r.reinspectionOfNo} 재검사`}><Tag style={{ marginLeft: 4 }}>재</Tag></Tooltip>}</> },
-          { title: '구분', dataIndex: 'inspectionType', width: 80, render: (t: string) => codes.name('INSPECTION_TYPE', t) },
-          { title: 'LOT', dataIndex: 'lotNo', width: 130 },
-          { title: '대상', render: (_: unknown, r) => <>{r.targetSummary}<Typography.Text type="secondary"> ({r.targetCount})</Typography.Text></> },
-          { title: '판정', dataIndex: 'decision', width: 80, render: (d: string | null) => d && <Tag color={colorOf('DECISION', d)}>{codes.name('DECISION', d)}</Tag> },
-          { title: '상태', dataIndex: 'status', width: 100, render: (s: string) => <Tag color={colorOf('INSPECTION_STATUS', s)}>{codes.name('INSPECTION_STATUS', s)}</Tag> },
-          { title: '검사자', dataIndex: 'inspectorName', width: 90 },
-        ]} />
+        columns={listColumns} />
       {editing !== null && (
         <InspectionWindow id={editing === 'new' ? null : editing} menuKey={menuKey} onClose={() => setEditing(null)}
           onChanged={(id) => { setEditing(id); void queryClient.invalidateQueries({ queryKey: queryKeys.inspections }) }} />

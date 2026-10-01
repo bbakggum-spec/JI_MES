@@ -1,9 +1,11 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Alert, App, Button, Col, DatePicker, Descriptions, Divider, Form, Input, Row, Select, Space, Switch, Table, Tag, Typography } from 'antd'
+import type { ColumnsType } from 'antd/es/table'
 import dayjs, { type Dayjs } from 'dayjs'
 import { useState } from 'react'
 import { ApiError, api } from '../../api/client'
 import { useCan } from '../../auth/useAuth'
+import ExportButton from '../../components/ExportButton'
 import EditorWindow from '../../components/EditorWindow'
 import { useClientSettings } from '../../hooks/useClientSettings'
 import { useCommonCodes } from '../../hooks/useCommonCodes'
@@ -74,6 +76,22 @@ export default function DefectsPage({ menuKey }: PageProps) {
   })
   const tag = (group: string, code: string | null) => code && <Tag color={codes.attr<{ color?: string }>(group, code)?.color}>{codes.name(group, code)}</Tag>
 
+  // 표·내보내기 공용 열 (내보내기 = 화면 표시 글자 그대로)
+  const listColumns: ColumnsType<Defect> = [
+      { title: '발생일', dataIndex: 'defectDate', width: 95, render: (d: string) => dayjs(d).format(DATE) },
+      { title: '입고번호', dataIndex: 'orderItemNo', width: 125 },
+      { title: '거래처', dataIndex: 'customerName', width: 100, ellipsis: true },
+      { title: '품명', render: (_: unknown, r) => <>{r.partName}{r.partNumber && <Typography.Text type="secondary"> {r.partNumber}</Typography.Text>}</> },
+      { title: '발생 LOT', width: 170, render: (_: unknown, r) => <>{r.lotNo}{r.unitProcessName && <Typography.Text type="secondary"> {r.unitProcessName}</Typography.Text>}</> },
+      { title: '주 LOT', dataIndex: 'mainLotNo', width: 125 },
+      { title: '출처', width: 130, render: (_: unknown, r) => r.inspectionNo ? <>검사 {r.inspectionNo}</> : '작업' },
+      { title: '수량', dataIndex: 'defectQty', width: 70, align: 'right', render: qty },
+      { title: '사유', width: 110, ellipsis: true, render: (_: unknown, r) => r.defectReasonName ?? r.remark },
+      { title: '상태', dataIndex: 'status', width: 90, render: (s: string) => tag('DEFECT_STATUS', s) },
+      { title: '처리', dataIndex: 'decision', width: 80, render: (d: string | null) => d && codes.name('DEFECT_ACTION', d) },
+      { title: '재작업 LOT', dataIndex: 'reworkLotNo', width: 125 },
+    ]
+
   return (
     <>
       <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 8 }} wrap>
@@ -86,25 +104,13 @@ export default function DefectsPage({ menuKey }: PageProps) {
           <Select allowClear placeholder="처리구분" style={{ width: 110 }} value={decision} onChange={setDecision}
             options={codes.options('DEFECT_ACTION').map((c) => ({ value: c.code, label: c.codeName }))} />
           <Input.Search allowClear placeholder="입고번호·LOT·품명·거래처·검사번호" style={{ width: 240 }} onSearch={(v) => setSearch(v.trim())} />
+          <ExportButton title="부적합" columns={listColumns} rows={list.data ?? []} />
         </Space>
       </Space>
       <Table<Defect> rowKey="defectOccurrenceId" size="small" loading={list.isFetching} dataSource={list.data ?? []} scroll={{ x: 1300 }}
         pagination={{ defaultPageSize: 50, showSizeChanger: true, showTotal: (n) => `${n}건` }}
         onRow={(r) => ({ onClick: () => setSelected(r.defectOccurrenceId), style: { cursor: 'pointer', opacity: r.status === 'CANCELLED' ? 0.5 : 1 } })}
-        columns={[
-          { title: '발생일', dataIndex: 'defectDate', width: 95, render: (d: string) => dayjs(d).format(DATE) },
-          { title: '입고번호', dataIndex: 'orderItemNo', width: 125 },
-          { title: '거래처', dataIndex: 'customerName', width: 100, ellipsis: true },
-          { title: '품명', render: (_: unknown, r) => <>{r.partName}{r.partNumber && <Typography.Text type="secondary"> {r.partNumber}</Typography.Text>}</> },
-          { title: '발생 LOT', width: 170, render: (_: unknown, r) => <>{r.lotNo}{r.unitProcessName && <Typography.Text type="secondary"> {r.unitProcessName}</Typography.Text>}</> },
-          { title: '주 LOT', dataIndex: 'mainLotNo', width: 125 },
-          { title: '출처', width: 130, render: (_: unknown, r) => r.inspectionNo ? <>검사 {r.inspectionNo}</> : '작업' },
-          { title: '수량', dataIndex: 'defectQty', width: 70, align: 'right', render: qty },
-          { title: '사유', width: 110, ellipsis: true, render: (_: unknown, r) => r.defectReasonName ?? r.remark },
-          { title: '상태', dataIndex: 'status', width: 90, render: (s: string) => tag('DEFECT_STATUS', s) },
-          { title: '처리', dataIndex: 'decision', width: 80, render: (d: string | null) => d && codes.name('DEFECT_ACTION', d) },
-          { title: '재작업 LOT', dataIndex: 'reworkLotNo', width: 125 },
-        ]} />
+        columns={listColumns} />
       {selected !== null && <DefectWindow id={selected} menuKey={menuKey} onClose={() => setSelected(null)}
         onChanged={() => void queryClient.invalidateQueries({ queryKey: queryKeys.defects })} />}
     </>

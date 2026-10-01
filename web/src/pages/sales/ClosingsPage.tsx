@@ -1,10 +1,13 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Alert, App, Button, Checkbox, DatePicker, Input, Popconfirm, Space, Table, Tag, Typography } from 'antd'
+import type { ColumnsType } from 'antd/es/table'
 import dayjs, { type Dayjs } from 'dayjs'
 import { useState } from 'react'
 import { ApiError, api } from '../../api/client'
 import { useCan } from '../../auth/useAuth'
+import ExportButton from '../../components/ExportButton'
 import EditorWindow from '../../components/EditorWindow'
+import PrintButton from '../../components/PrintButton'
 import { useCommonCodes } from '../../hooks/useCommonCodes'
 import { queryKeys } from '../../queryKeys'
 import type { PageProps } from '../registry'
@@ -27,12 +30,23 @@ export default function ClosingsPage({ menuKey }: PageProps) {
   })
   const rows = summary.data ?? []
 
+  // 표·내보내기 공용 열 (내보내기 = 화면 표시 글자 그대로)
+  const listColumns: ColumnsType<ClosingCustomer> = [
+      { title: '거래처', dataIndex: 'customerName' },
+      { title: '마감 기준일', dataIndex: 'closingDate', width: 130, render: (d: string, r) => <>{dayjs(d).format(DATE)}<Typography.Text type="secondary"> ({r.closingDay ?? '말'}일)</Typography.Text></> },
+      { title: '미마감 건', dataIndex: 'openCount', width: 90, align: 'right', render: (n: number) => (n > 0 ? <Typography.Text type="warning" strong>{n}</Typography.Text> : 0) },
+      { title: '미마감 금액', dataIndex: 'openAmount', width: 130, align: 'right', render: won },
+      { title: '마감 건', dataIndex: 'closedCount', width: 90, align: 'right' },
+      { title: '마감 금액', dataIndex: 'closedAmount', width: 130, align: 'right', render: won },
+    ]
+
   return (
     <>
       <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 8 }} wrap>
         <Typography.Title level={4} style={{ margin: 0 }}>마감</Typography.Title>
         <Space>
           <DatePicker picker="month" value={month} allowClear={false} onChange={(v) => v && setMonth(v.startOf('month'))} />
+          <ExportButton title={`마감 ${month.format('YYYY-MM')}`} columns={listColumns} rows={rows} />
         </Space>
       </Space>
       <Table<ClosingCustomer> rowKey="customerId" size="small" loading={summary.isFetching} dataSource={rows} pagination={false}
@@ -47,14 +61,7 @@ export default function ClosingsPage({ menuKey }: PageProps) {
           </Table.Summary.Row>
         )}
         locale={{ emptyText: '이 달까지 출하한 전표가 없습니다' }}
-        columns={[
-          { title: '거래처', dataIndex: 'customerName' },
-          { title: '마감 기준일', dataIndex: 'closingDate', width: 130, render: (d: string, r) => <>{dayjs(d).format(DATE)}<Typography.Text type="secondary"> ({r.closingDay ?? '말'}일)</Typography.Text></> },
-          { title: '미마감 건', dataIndex: 'openCount', width: 90, align: 'right', render: (n: number) => (n > 0 ? <Typography.Text type="warning" strong>{n}</Typography.Text> : 0) },
-          { title: '미마감 금액', dataIndex: 'openAmount', width: 130, align: 'right', render: won },
-          { title: '마감 건', dataIndex: 'closedCount', width: 90, align: 'right' },
-          { title: '마감 금액', dataIndex: 'closedAmount', width: 130, align: 'right', render: won },
-        ]} />
+        columns={listColumns} />
       {customer && <ClosingWindow customer={customer} year={year} month={m} menuKey={menuKey} onClose={() => setCustomer(null)}
         onChanged={() => void queryClient.invalidateQueries({ queryKey: queryKeys.closings })} />}
     </>
@@ -126,7 +133,9 @@ function ClosingWindow({ customer, year, month, menuKey, onClose, onChanged }: {
             ]} />
           <Space style={{ width: '100%', justifyContent: 'space-between', marginTop: 8 }} wrap>
             <Typography.Text>선택 {effectiveSelected.length}건 · <b>{won(total)}</b>원</Typography.Text>
-            <Space>
+            <Space wrap>
+              {/* 선택 전표 거래명세표를 한 PDF 로 (구 F_MonthlyClosing 일괄 출력) */}
+              <PrintButton purposeCode="SHIPMENT_SLIP" sourceIds={effectiveSelected}>거래명세표</PrintButton>
               {canUpdate && (
                 <Button disabled={effectiveSelected.length === 0} loading={busy} onClick={() => void run(async () => {
                   const r = await api<{ carried: number }>('/api/closings/carry-over', { method: 'POST', body: { shipmentIds: effectiveSelected, year: next.year(), month: next.month() + 1 } })
@@ -158,6 +167,12 @@ function ClosingWindow({ customer, year, month, menuKey, onClose, onChanged }: {
               { title: '금액', dataIndex: 'totalAmount', width: 120, align: 'right', render: won },
               { title: '상태', dataIndex: 'closingStatus', width: 90, render: (st: string) => <Tag color={codes.attr<{ color?: string }>('CLOSING_RUN_STATUS', st)?.color}>{codes.name('CLOSING_RUN_STATUS', st)}</Tag> },
               { title: '마감', render: (_: unknown, c) => c.closedAt && `${c.closedByName ?? ''} · ${dayjs(c.closedAt).format('MM-DD HH:mm')}` },
+              {
+                title: '', width: 120, render: (_: unknown, c) => (
+                  // 마감내역서 = 엑셀 양식을 등록하면 (출력 양식 > 마감내역서)
+                  <PrintButton purposeCode="CLOSING_REPORT" sourceIds={[c.shipmentClosingId]} size="small" hideWithoutTemplate>마감내역서</PrintButton>
+                ),
+              },
               {
                 title: '', width: 100, render: (_: unknown, c) => canDelete && c.closingStatus === 'CLOSED' && (
                   <Popconfirm title="마감을 취소합니다" description="이 마감의 전표가 미마감으로 돌아갑니다." onConfirm={() => void run(async () => {

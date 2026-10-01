@@ -1882,6 +1882,8 @@ SELECT v.code, v.name, ds.print_data_source_id, 1, v.ord
         UNION ALL SELECT 'WORK_DAILY',     '작업일보',       'PRODUCTION_WORK', 9
         UNION ALL SELECT 'PROGRESS_SHEET', '작업 진행 현황표','SCHEDULE_DAY',   10) v
   JOIN print_data_source ds ON ds.data_source_code = v.ds;
+-- 작업 진행 현황표: 구 ProgressSheet 클래스는 어느 화면에서도 쓰지 않음 (F_IncomeForm "진행 현황표" 버튼은 공정이동표를 출력) → 사용 중지 (설계 §29.3)
+UPDATE print_purpose SET is_active = 0 WHERE purpose_code = 'PROGRESS_SHEET';
 
 -- 고정 양식 등록 (레이아웃 옵션 = 구 코드 상수값, 관리자 화면에서 조정)
 INSERT INTO print_template (print_template_name, print_purpose_id, template_kind, renderer_key, is_default)
@@ -1995,7 +1997,8 @@ SELECT t.print_template_id, 1,
          }'
        END,
        1, '구 PrintDoc 상수값 이관'
-  FROM print_template t WHERE t.template_kind = 'FIXED';
+   FROM print_template t WHERE t.template_kind = 'FIXED';
+UPDATE print_template SET is_active = 0 WHERE renderer_key = 'PROGRESS_SHEET';   -- 구 화면 미사용 (설계 §29.3)
 
 -- 치환자 사전 (§15.2 P2·P3). 목록(LIST) 안의 항목은 '목록.항목' 키 — 양식에서는 {{#목록}} … {{/목록}} 행 안에 {{항목}} 또는 {{목록.항목}}
 --   검사 대상의 구 좌표형 키 {{T1_3_P2}}, {{C1_2_Spec}} 은 사전 없이 호환 허용 (구 InspectionPrintService.BuildPlaceholders)
@@ -2243,7 +2246,33 @@ SELECT ds.print_data_source_id, v.k, v.a, v.t, v.g, v.f, v.d, v.s, v.o
         UNION ALL SELECT 'STANDARD', 'Standard.S12', NULL, 'TEXT', '작업표준', NULL, NULL, NULL, 120
         UNION ALL SELECT 'STANDARD', 'Standard.S13', NULL, 'TEXT', '작업표준', NULL, NULL, NULL, 121
         UNION ALL SELECT 'STANDARD', 'Standard.S14', NULL, 'TEXT', '작업표준', NULL, NULL, NULL, 122
-        UNION ALL SELECT 'STANDARD', 'Standard.S15', NULL, 'TEXT', '작업표준', NULL, NULL, NULL, 123) v
+        UNION ALL SELECT 'STANDARD', 'Standard.S15', NULL, 'TEXT', '작업표준', NULL, NULL, NULL, 123
+        UNION ALL SELECT 'SHIPMENT_CLOSING', 'ClosingNo', '마감번호', 'TEXT', '마감', NULL, NULL, 'CL202609-001', 10
+        UNION ALL SELECT 'SHIPMENT_CLOSING', 'ClosingMonth', '마감월', 'TEXT', '마감', NULL, 'yyyy-MM', '2026-09', 11
+        UNION ALL SELECT 'SHIPMENT_CLOSING', 'ClosingDate', '마감기준일', 'DATE', '마감', 'yyyy-MM-dd', NULL, '2026-09-30', 12
+        UNION ALL SELECT 'SHIPMENT_CLOSING', 'IssueDate', '발행일', 'DATE', '마감', 'yyyy-MM-dd', NULL, NULL, 13
+        UNION ALL SELECT 'SHIPMENT_CLOSING', 'CustomerName', '거래처', 'TEXT', '마감', NULL, NULL, '한독기어', 20
+        UNION ALL SELECT 'SHIPMENT_CLOSING', 'CustomerBusinessNo', '거래처등록번호', 'TEXT', '마감', NULL, NULL, NULL, 21
+        UNION ALL SELECT 'SHIPMENT_CLOSING', 'SupplierName', '공급자상호', 'TEXT', '공급자', NULL, 'company', NULL, 30
+        UNION ALL SELECT 'SHIPMENT_CLOSING', 'SupplierBusinessNo', '공급자등록번호', 'TEXT', '공급자', NULL, NULL, NULL, 31
+        UNION ALL SELECT 'SHIPMENT_CLOSING', 'SupplierCeoName', '공급자성명', 'TEXT', '공급자', NULL, NULL, NULL, 32
+        UNION ALL SELECT 'SHIPMENT_CLOSING', 'SlipCount', '전표수', 'NUMBER', '합계', '#,##0', NULL, '12', 40
+        UNION ALL SELECT 'SHIPMENT_CLOSING', 'TotalQty', '총수량', 'NUMBER', '합계', '#,##0', NULL, NULL, 41
+        UNION ALL SELECT 'SHIPMENT_CLOSING', 'TotalWeight', '총중량', 'NUMBER', '합계', '#,##0.##', NULL, NULL, 42
+        UNION ALL SELECT 'SHIPMENT_CLOSING', 'SupplyAmount', '공급가액', 'NUMBER', '합계', '#,##0', '전표 저장값 합', NULL, 43
+        UNION ALL SELECT 'SHIPMENT_CLOSING', 'VatAmount', '세액', 'NUMBER', '합계', '#,##0', NULL, NULL, 44
+        UNION ALL SELECT 'SHIPMENT_CLOSING', 'TotalAmount', '합계금액', 'NUMBER', '합계', '#,##0', NULL, NULL, 45
+        UNION ALL SELECT 'SHIPMENT_CLOSING', 'Remark', '비고', 'TEXT', '마감', NULL, NULL, NULL, 50
+        UNION ALL SELECT 'SHIPMENT_CLOSING', 'Slips', '전표', 'LIST', '전표', NULL, '마감에 포함된 출하 전표', NULL, 100
+        UNION ALL SELECT 'SHIPMENT_CLOSING', 'Slips.No', NULL, 'NUMBER', '전표', NULL, NULL, '1', 101
+        UNION ALL SELECT 'SHIPMENT_CLOSING', 'Slips.ShipmentNo', NULL, 'TEXT', '전표', NULL, NULL, NULL, 102
+        UNION ALL SELECT 'SHIPMENT_CLOSING', 'Slips.ShipmentDate', NULL, 'DATE', '전표', 'yyyy-MM-dd', NULL, NULL, 103
+        UNION ALL SELECT 'SHIPMENT_CLOSING', 'Slips.Items', NULL, 'TEXT', '전표', NULL, '품명 요약', NULL, 104
+        UNION ALL SELECT 'SHIPMENT_CLOSING', 'Slips.Qty', NULL, 'NUMBER', '전표', '#,##0', NULL, NULL, 105
+        UNION ALL SELECT 'SHIPMENT_CLOSING', 'Slips.Weight', NULL, 'NUMBER', '전표', '#,##0.##', NULL, NULL, 106
+        UNION ALL SELECT 'SHIPMENT_CLOSING', 'Slips.SupplyAmount', NULL, 'NUMBER', '전표', '#,##0', NULL, NULL, 107
+        UNION ALL SELECT 'SHIPMENT_CLOSING', 'Slips.VatAmount', NULL, 'NUMBER', '전표', '#,##0', NULL, NULL, 108
+        UNION ALL SELECT 'SHIPMENT_CLOSING', 'Slips.TotalAmount', NULL, 'NUMBER', '전표', '#,##0', NULL, NULL, 109) v
   JOIN print_data_source ds ON ds.data_source_code = v.ds;
 
 -- =====================================================================

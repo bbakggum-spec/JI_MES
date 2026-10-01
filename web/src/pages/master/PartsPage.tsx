@@ -4,12 +4,15 @@ import {
   App, Button, Checkbox, Col, Form, Input, InputNumber, Radio, Row, Select, Space, Switch,
   Table, Tabs, Tag, Typography,
 } from 'antd'
+import type { ColumnsType } from 'antd/es/table'
 import AttachmentList from '../../components/AttachmentList'
 import EditorWindow from '../../components/EditorWindow'
 import dayjs from 'dayjs'
 import { useState } from 'react'
 import { ApiError, api, fieldErrors } from '../../api/client'
+import { fetchAllPages } from '../../api/paging'
 import { useCan } from '../../auth/useAuth'
+import ExportButton from '../../components/ExportButton'
 import { useCommonCodes } from '../../hooks/useCommonCodes'
 import { useDataVersion } from '../../hooks/useDataVersion'
 import { queryKeys } from '../../queryKeys'
@@ -86,6 +89,22 @@ export default function PartsPage({ menuKey }: PageProps) {
     placeholderData: (prev) => prev,
   })
 
+  // 표·내보내기 공용 열 (내보내기 = 화면 표시 글자 그대로)
+  const listColumns: ColumnsType<Part> = [
+      { title: '코드', dataIndex: 'partCode', width: 120 },
+      { title: '품명', dataIndex: 'partName', ellipsis: true },
+      { title: '품번', dataIndex: 'partNumber', width: 120 },
+      { title: '규격', dataIndex: 'specification', width: 110, ellipsis: true },
+      { title: '거래처', dataIndex: 'customerNames', width: 160, ellipsis: true },
+      { title: '기본 공정', dataIndex: 'defaultHeatProcessName', width: 110 },
+      {
+        title: '단가', width: 130, align: 'right',
+        render: (_: unknown, p) => p.unitPrice != null && `${p.unitPrice.toLocaleString()} / ${codes.name('PRICE_BASIS', p.priceBasis)}`,
+      },
+      { title: '도면번호', dataIndex: 'drawingNo', width: 110 },
+      { title: '첨부', dataIndex: 'attachmentCount', width: 60, align: 'right', render: (n: number) => (n > 0 ? n : null) },
+    ]
+
   return (
     <>
       <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 8 }} wrap>
@@ -96,26 +115,19 @@ export default function PartsPage({ menuKey }: PageProps) {
             options={(lookups.data?.customers ?? []).filter((c) => c.active).map((c) => ({ value: c.value, label: c.label }))} />
           <Input.Search allowClear placeholder="코드·품명·품번·도면번호·고객 품번" style={{ width: 260 }} onSearch={(v) => { setSearch(v.trim()); setPage(1) }} />
           <Space size={4}><Switch size="small" checked={includeInactive} onChange={setIncludeInactive} />사용 중지 포함</Space>
+          <ExportButton title="품목" columns={listColumns} fetchRows={() => fetchAllPages((page, pageSize) => {
+            const q = new URLSearchParams(params)
+            q.set('page', String(page))
+            q.set('pageSize', String(pageSize))
+            return api<{ items: Part[]; total: number }>(`/api/parts?${q}`)
+          })} />
           {canCreate && <Button type="primary" icon={<PlusOutlined />} onClick={() => setEditing('new')}>품목 추가</Button>}
         </Space>
       </Space>
       <Table<Part> rowKey="partId" size="middle" loading={list.isFetching} dataSource={list.data?.items ?? []} scroll={{ x: 1100 }}
         onRow={(p) => ({ onClick: () => setEditing(p.partId), style: { cursor: 'pointer', opacity: p.isActive ? 1 : 0.5 } })}
         pagination={{ current: page, pageSize: PAGE_SIZE, total: list.data?.total ?? 0, showSizeChanger: false, showTotal: (t) => `${t.toLocaleString()}건`, onChange: setPage }}
-        columns={[
-          { title: '코드', dataIndex: 'partCode', width: 120 },
-          { title: '품명', dataIndex: 'partName', ellipsis: true },
-          { title: '품번', dataIndex: 'partNumber', width: 120 },
-          { title: '규격', dataIndex: 'specification', width: 110, ellipsis: true },
-          { title: '거래처', dataIndex: 'customerNames', width: 160, ellipsis: true },
-          { title: '기본 공정', dataIndex: 'defaultHeatProcessName', width: 110 },
-          {
-            title: '단가', width: 130, align: 'right',
-            render: (_: unknown, p) => p.unitPrice != null && `${p.unitPrice.toLocaleString()} / ${codes.name('PRICE_BASIS', p.priceBasis)}`,
-          },
-          { title: '도면번호', dataIndex: 'drawingNo', width: 110 },
-          { title: '첨부', dataIndex: 'attachmentCount', width: 60, align: 'right', render: (n: number) => (n > 0 ? n : null) },
-        ]} />
+        columns={listColumns} />
       {editing !== null && (
         <PartWindow partId={editing === 'new' ? null : editing} lookups={lookups.data} canEdit={editing === 'new' ? canCreate : canUpdate}
           onClose={() => setEditing(null)}

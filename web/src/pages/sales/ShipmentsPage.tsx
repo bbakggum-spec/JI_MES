@@ -3,10 +3,12 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Alert, App, Button, Checkbox, Col, DatePicker, Form, Input, InputNumber, Popconfirm, Row, Select, Space, Statistic, Switch, Table, Tag, Typography,
 } from 'antd'
+import type { ColumnsType } from 'antd/es/table'
 import dayjs, { type Dayjs } from 'dayjs'
 import { useState } from 'react'
 import { ApiError, api } from '../../api/client'
 import { useCan } from '../../auth/useAuth'
+import ExportButton from '../../components/ExportButton'
 import EditorWindow from '../../components/EditorWindow'
 import PrintButton from '../../components/PrintButton'
 import { useClientSettings } from '../../hooks/useClientSettings'
@@ -47,6 +49,25 @@ export default function ShipmentsPage({ menuKey }: PageProps) {
   const rows = list.data ?? []
   const live = rows.filter((r) => r.status !== 'CANCELLED')
 
+  // 표·내보내기 공용 열 (내보내기 = 화면 표시 글자 그대로)
+  const listColumns: ColumnsType<Shipment> = [
+      { title: '출하일', dataIndex: 'shipmentDate', width: 95, render: (d: string) => dayjs(d).format(DATE) },
+      { title: '전표번호', dataIndex: 'shipmentNo', width: 125 },
+      { title: '거래처', dataIndex: 'customerName', width: 120, ellipsis: true },
+      { title: '품목', ellipsis: true, render: (_: unknown, r) => <>{r.itemSummary}<Typography.Text type="secondary"> ({r.itemCount})</Typography.Text></> },
+      { title: '수량', dataIndex: 'totalQty', width: 80, align: 'right', render: qty },
+      { title: '공급가액', dataIndex: 'supplyAmount', width: 110, align: 'right', render: won },
+      { title: '세액', dataIndex: 'vatAmount', width: 90, align: 'right', render: won },
+      { title: '합계', dataIndex: 'totalAmount', width: 110, align: 'right', render: won },
+      {
+        title: '마감', width: 120, render: (_: unknown, r) => r.status === 'CANCELLED' ? <Tag>{codes.name('ORDER_STATUS', 'CANCELLED')}</Tag> : (
+          <Space size={2}><Tag color={codes.attr<{ color?: string }>('CLOSING_STATUS', r.closingStatus)?.color}>{codes.name('CLOSING_STATUS', r.closingStatus)}</Tag>
+            {r.closingYear && <Typography.Text type="secondary" style={{ fontSize: 12 }}>{r.closingYear}-{String(r.closingMonth).padStart(2, '0')}</Typography.Text>}</Space>
+        ),
+      },
+      { title: '비고', dataIndex: 'remark', width: 120, ellipsis: true },
+    ]
+
   return (
     <>
       <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 8 }} wrap>
@@ -56,6 +77,7 @@ export default function ShipmentsPage({ menuKey }: PageProps) {
           <Select allowClear showSearch optionFilterProp="label" placeholder="거래처 전체" style={{ width: 160 }} value={customerId} onChange={setCustomerId} options={customers.options} />
           <Input.Search allowClear placeholder="전표번호·입고번호·품명·LOT" style={{ width: 220 }} onSearch={(v) => setSearch(v.trim())} />
           <Space size={4}><Switch size="small" checked={includeCancelled} onChange={setIncludeCancelled} />취소 포함</Space>
+          <ExportButton title="출하" columns={listColumns} rows={rows} />
           {canCreate && <Button type="primary" icon={<PlusOutlined />} onClick={() => setEditing('new')}>출하 등록</Button>}
         </Space>
       </Space>
@@ -72,23 +94,7 @@ export default function ShipmentsPage({ menuKey }: PageProps) {
             <Table.Summary.Cell index={8} colSpan={2} />
           </Table.Summary.Row>
         )}
-        columns={[
-          { title: '출하일', dataIndex: 'shipmentDate', width: 95, render: (d: string) => dayjs(d).format(DATE) },
-          { title: '전표번호', dataIndex: 'shipmentNo', width: 125 },
-          { title: '거래처', dataIndex: 'customerName', width: 120, ellipsis: true },
-          { title: '품목', ellipsis: true, render: (_: unknown, r) => <>{r.itemSummary}<Typography.Text type="secondary"> ({r.itemCount})</Typography.Text></> },
-          { title: '수량', dataIndex: 'totalQty', width: 80, align: 'right', render: qty },
-          { title: '공급가액', dataIndex: 'supplyAmount', width: 110, align: 'right', render: won },
-          { title: '세액', dataIndex: 'vatAmount', width: 90, align: 'right', render: won },
-          { title: '합계', dataIndex: 'totalAmount', width: 110, align: 'right', render: won },
-          {
-            title: '마감', width: 120, render: (_: unknown, r) => r.status === 'CANCELLED' ? <Tag>{codes.name('ORDER_STATUS', 'CANCELLED')}</Tag> : (
-              <Space size={2}><Tag color={codes.attr<{ color?: string }>('CLOSING_STATUS', r.closingStatus)?.color}>{codes.name('CLOSING_STATUS', r.closingStatus)}</Tag>
-                {r.closingYear && <Typography.Text type="secondary" style={{ fontSize: 12 }}>{r.closingYear}-{String(r.closingMonth).padStart(2, '0')}</Typography.Text>}</Space>
-            ),
-          },
-          { title: '비고', dataIndex: 'remark', width: 120, ellipsis: true },
-        ]} />
+        columns={listColumns} />
       {editing !== null && <ShipmentWindow id={editing === 'new' ? null : editing} menuKey={menuKey} onClose={() => setEditing(null)}
         onChanged={(id) => { setEditing(id); void queryClient.invalidateQueries({ queryKey: queryKeys.shipments }) }} />}
     </>

@@ -1,8 +1,10 @@
 import { useQuery } from '@tanstack/react-query'
 import { Alert, Card, Col, DatePicker, Descriptions, Empty, Input, Row, Segmented, Select, Space, Switch, Table, Tabs, Tag, Typography } from 'antd'
+import type { ColumnsType } from 'antd/es/table'
 import dayjs, { type Dayjs } from 'dayjs'
 import { useState, type ReactNode } from 'react'
 import { ApiError, api } from '../../api/client'
+import ExportButton from '../../components/ExportButton'
 import { useClientSettings } from '../../hooks/useClientSettings'
 import { useCommonCodes } from '../../hooks/useCommonCodes'
 import { useOptions } from '../../hooks/useOptions'
@@ -93,6 +95,29 @@ function StatusTab({ onTrace }: { onTrace: (lotNo: string) => void }) {
     enabled: effectiveRange !== null,
     refetchInterval: settings.refreshIntervalMs,
   })
+  // 표·내보내기 공용 열 (내보내기 = 화면 표시 글자 그대로)
+  const listColumns: ColumnsType<LotStatus> = [
+      { title: '작업일', dataIndex: 'workDate', width: 95, render: (d: string) => dayjs(d).format(DATE) },
+      {
+        title: 'LOT', dataIndex: 'lotNo', width: 170, fixed: 'left', render: (lot: string, r) => (
+          <Space size={2}>{lot}{r.isMainProcess && <Tag color="gold">주</Tag>}{r.isRework && <Tag color="purple">재</Tag>}</Space>
+        ),
+      },
+      { title: '설비', dataIndex: 'equipmentName', width: 90 },
+      { title: '단위공정', dataIndex: 'unitProcessName', width: 90 },
+      { title: '상태', dataIndex: 'status', width: 70, render: (s: string) => <Tag color={s === 'INPUT' ? 'processing' : s === 'COMPLETED' ? 'success' : 'default'}>{codes.name('WORK_STATUS', s)}</Tag> },
+      { title: '입고번호', dataIndex: 'orderSummary', width: 140, ellipsis: true },
+      { title: '품명', dataIndex: 'partSummary', ellipsis: true },
+      { title: '거래처', dataIndex: 'customerSummary', width: 100, ellipsis: true },
+      { title: '투입', dataIndex: 'inputQty', width: 70, align: 'right', render: qty },
+      { title: '양품', dataIndex: 'goodQty', width: 70, align: 'right', render: qty },
+      { title: '후공정', width: 70, align: 'center', render: (_: unknown, r) => r.postLotCount > 0 && `${r.postDoneCount}/${r.postLotCount}` },
+      { title: '검사', width: 60, align: 'center', render: (_: unknown, r) => r.inspectionCount > 0 && `${r.inspectionDoneCount}/${r.inspectionCount}` },
+      { title: '부적합', dataIndex: 'openDefectCount', width: 65, align: 'center', render: (n: number) => n > 0 && <Tag color="red">{n}</Tag> },
+      { title: '출하', dataIndex: 'shipmentQty', width: 70, align: 'right', render: (n: number) => n > 0 && qty(n) },
+      { title: '실적', width: 150, render: (_: unknown, r) => r.actualStartAt && `${dayjs(r.actualStartAt).format(TIME)} ~ ${r.actualEndAt ? dayjs(r.actualEndAt).format('HH:mm') : ''}` },
+    ]
+
   return (
     <>
       <Space wrap style={{ marginBottom: 8 }}>
@@ -103,31 +128,12 @@ function StatusTab({ onTrace }: { onTrace: (lotNo: string) => void }) {
           options={codes.options('WORK_STATUS').filter((c) => c.code !== 'CANCELLED').map((c) => ({ value: c.code, label: c.codeName }))} />
         <Space size={4}><Switch size="small" checked={mainOnly} onChange={setMainOnly} />주 LOT 만</Space>
         <Input.Search allowClear placeholder="LOT·제출 LOT·입고번호·품명·거래처" style={{ width: 260 }} onSearch={(v) => setSearch(v.trim())} />
+        <ExportButton title="LOT 현황" columns={listColumns} rows={list.data ?? []} />
       </Space>
       <Table<LotStatus> rowKey="productionWorkId" size="small" loading={list.isFetching} dataSource={list.data ?? []} scroll={{ x: 1500 }}
         pagination={{ defaultPageSize: 50, showSizeChanger: true, showTotal: (n) => `${n}건` }}
         onRow={(r) => ({ onClick: () => onTrace(r.lotNo), style: { cursor: 'pointer' } })}
-        columns={[
-          { title: '작업일', dataIndex: 'workDate', width: 95, render: (d: string) => dayjs(d).format(DATE) },
-          {
-            title: 'LOT', dataIndex: 'lotNo', width: 170, fixed: 'left', render: (lot: string, r) => (
-              <Space size={2}>{lot}{r.isMainProcess && <Tag color="gold">주</Tag>}{r.isRework && <Tag color="purple">재</Tag>}</Space>
-            ),
-          },
-          { title: '설비', dataIndex: 'equipmentName', width: 90 },
-          { title: '단위공정', dataIndex: 'unitProcessName', width: 90 },
-          { title: '상태', dataIndex: 'status', width: 70, render: (s: string) => <Tag color={s === 'INPUT' ? 'processing' : s === 'COMPLETED' ? 'success' : 'default'}>{codes.name('WORK_STATUS', s)}</Tag> },
-          { title: '입고번호', dataIndex: 'orderSummary', width: 140, ellipsis: true },
-          { title: '품명', dataIndex: 'partSummary', ellipsis: true },
-          { title: '거래처', dataIndex: 'customerSummary', width: 100, ellipsis: true },
-          { title: '투입', dataIndex: 'inputQty', width: 70, align: 'right', render: qty },
-          { title: '양품', dataIndex: 'goodQty', width: 70, align: 'right', render: qty },
-          { title: '후공정', width: 70, align: 'center', render: (_: unknown, r) => r.postLotCount > 0 && `${r.postDoneCount}/${r.postLotCount}` },
-          { title: '검사', width: 60, align: 'center', render: (_: unknown, r) => r.inspectionCount > 0 && `${r.inspectionDoneCount}/${r.inspectionCount}` },
-          { title: '부적합', dataIndex: 'openDefectCount', width: 65, align: 'center', render: (n: number) => n > 0 && <Tag color="red">{n}</Tag> },
-          { title: '출하', dataIndex: 'shipmentQty', width: 70, align: 'right', render: (n: number) => n > 0 && qty(n) },
-          { title: '실적', width: 150, render: (_: unknown, r) => r.actualStartAt && `${dayjs(r.actualStartAt).format(TIME)} ~ ${r.actualEndAt ? dayjs(r.actualEndAt).format('HH:mm') : ''}` },
-        ]} />
+        columns={listColumns} />
       <Typography.Text type="secondary">행을 누르면 그 LOT 을 주 LOT 기준으로 추적합니다. 후공정·검사 = 완료/전체.</Typography.Text>
     </>
   )
