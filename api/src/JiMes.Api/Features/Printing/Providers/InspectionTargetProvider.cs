@@ -14,6 +14,7 @@ namespace JiMes.Api.Features.Printing.Providers;
 public sealed class InspectionTargetProvider(CommonCodeCache codes, AttachmentReader attachments) : IPrintDataProvider
 {
     public string DataSourceCode => "INSPECTION_TARGET";
+    public string MenuKey => JiMes.Api.Infrastructure.Security.MenuKeys.QualityInspection;
     public string SourceTable => "inspection_target";
     public bool AllowLegacyGridKeys => true;
 

@@ -15,6 +15,9 @@ public interface IPrintDataProvider
     /// <summary>print_data_source.data_source_code</summary>
     string DataSourceCode { get; }
 
+    /// <summary>발행 권한 = 이 메뉴 읽기 (화면에서 출력 — 설계 §12 ⑦)</summary>
+    string MenuKey { get; }
+
     /// <summary>print_log.source_table</summary>
     string SourceTable { get; }
 

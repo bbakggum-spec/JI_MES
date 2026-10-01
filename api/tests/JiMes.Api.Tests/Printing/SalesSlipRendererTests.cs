@@ -17,7 +17,7 @@ public sealed class SalesSlipRendererTests
     public void Missing_fonts_fail_with_clear_code()
     {
         var ex = Assert.Throws<JiMes.Api.Infrastructure.Errors.BusinessRuleException>(() =>
-            new SalesSlipRenderer().Render(Slip(1), """{"font": {"family": ["없는글꼴"]}}"""));
+            ((IFixedRenderer)new SalesSlipRenderer()).Render(Slip(1), """{"font": {"family": ["없는글꼴"]}}"""));
         Assert.Equal("FONT_NOT_INSTALLED", ex.Code);
     }
 
@@ -54,7 +54,7 @@ public sealed class SalesSlipRendererTests
     [InlineData(13, 3)]
     public void Pages_follow_items_per_page_option(int items, int pages)
     {
-        var pdf = new SalesSlipRenderer().Render(Slip(items), """{"items_per_page": 6}""");
+        var pdf = ((IFixedRenderer)new SalesSlipRenderer()).Render(Slip(items), """{"items_per_page": 6}""");
         Assert.StartsWith("%PDF", Encoding.ASCII.GetString(pdf, 0, 4));
         Assert.Equal(pages, PageCount(pdf));
     }
@@ -62,9 +62,9 @@ public sealed class SalesSlipRendererTests
     [Fact]
     public void Options_change_layout_and_missing_options_use_defaults()
     {
-        var three = new SalesSlipRenderer().Render(Slip(7), """{"items_per_page": 3, "copies": [{"label": "(보관용)", "border_color": "#000000"}]}""");
+        var three = ((IFixedRenderer)new SalesSlipRenderer()).Render(Slip(7), """{"items_per_page": 3, "copies": [{"label": "(보관용)", "border_color": "#000000"}]}""");
         Assert.Equal(3, PageCount(three));
-        var defaults = new SalesSlipRenderer().Render(Slip(7), null);
+        var defaults = ((IFixedRenderer)new SalesSlipRenderer()).Render(Slip(7), null);
         Assert.Equal(2, PageCount(defaults));
     }
 }

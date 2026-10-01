@@ -1,4 +1,4 @@
-# bbakggum DB 구조개편 설계안 V3.29
+# bbakggum DB 구조개편 설계안 V3.30
 
 | 항목 | 내용 |
 |-|-|
@@ -20,6 +20,7 @@
 | V3.5 | 2026-09-30 | **모든 출력물 = 사용자 엑셀 양식 등록 방식**, 출력 용도 **사용자 확장**(`print_purpose`), 양식 파일 **DB 버전 보관**, 치환자 사전(`print_field`), 출력 이력(`print_log`), **구현 시 주의사항**(§15: 스케줄·진행현황, 엑셀 양식 출력 — 기존 소스 분석), 기존 DB 보존 + 신규 구축 원칙 명시 |
 | V3.6 | 2026-09-30 | 양식 등록 방식 **2가지**: EXCEL(사용자 수정 양식) + **FIXED**(코드 고정 레이아웃 — 거래명세표 등 구 PrintDoc 7종, 레이아웃 옵션은 관리자 조정), **하드코딩 → 관리자 설정**(§15.4, `system_setting` 확장·초기값, 로직 참조 공통코드, 단말별 프린터 `workstation_print_setting`, 도장 이미지 DB 보관) |
 | V3.8 | 2026-09-30 | **1단계 기존 폼 분석 반영** (`docs/legacy_forms/`): 입고번호 = 스캔 수주번호(`order_item_no`), 수주 행 요구사항 Snapshot·우선순위·별도관리·고객 작업지시번호, 품목 단가 적용 구분(EA/KG/CHARGE), 설비당 투입 중 작업 1건, 한 LOT에 같은 수주 1회, 관리항목 템플릿(`step_template_condition`), 검사구분(입고/공정/출하)·재검사·**검사 결과 공통 적용**, 부적합 처리구분(재처리/출하/선별/보류/폐기/반송), 출하 시험편·거래처 Snapshot·전표 단위 마감 상태(미마감/마감/이월), 공통 첨부(`attachment`), 설정·공통코드 추가. 배정 병합 시 최대 작업시간, 지연 시 뒤 배정 계획시각 자동 이동 |
+| V3.30 | 2026-10-01 | **10단계 ① 발행 공통·수주 출력** (§29.1): 업무 화면 발행 API(화면 읽기 권한·여러 건 한 파일·양식 선택), 공용 출력 버튼, 공정이동표·제품표시 라벨 렌더러(구 ProcessSheet·ProductLabel), 바코드 SVG, 데이터 공급원 SALES_ORDER(입고 행). DDL: SALES_ORDER 치환자 사전 |
 | V3.29 | 2026-10-01 | **9단계 ③ 작업자 주·야 배치 보드** (§28.5): 설비 × 교대 칸에 작업자 끌어다 놓기(태블릿 누르기), 이동·주/보조·해제, 전날 배치 복사, SignalR 실시간 반영. 메뉴 `equipment.worker_assignment`. **9단계 완료** |
 | V3.28 | 2026-10-01 | **9단계 ② 설비 보전·측정기구 교정** (§28.3~28.4, 구 F_MaintenanceForm): 보전 목록·점검 예정(지남·임박)·사진 첨부, 측정기구별 교정 상태·이력·성적서 파일(교정 저장 시 최근·다음 교정일 반영). 공통 첨부 `AttachmentStore`·`AttachmentList` 로 정리. DDL: `maintenance` 부위·업체·비용·다음 점검일·row_version, `instrument_calibration`, 공통코드 `MAINTENANCE_TYPE`·`MAINTENANCE_STATUS`·첨부 2종, 설정 `maintenance.due_soon_days`·`instrument.calibration_due_soon_days`, 메뉴 `equipment.maintenance`·`quality.calibration`. 이관: 구 측정기구 기록 → 교정 이력 |
 | V3.27 | 2026-10-01 | **9단계 ① 비가동·공정검사 항목** (§28.1~28.2, 구 F_DowntimeInput·F_DowntimeStatus): 입력·현황 한 화면(설비별·사유별 합계, 진행 중 [종료]), 계획 비가동 저장 시 스케줄 재계산, 공정검사 항목 기준정보. DDL: 메뉴 `equipment.downtime`·`master.unit_inspection_item` |
@@ -1741,3 +1742,50 @@ t_income → sales_order + sales_order_item.
 - 바뀌면 SignalR `workerAssignmentChanged {workDate}` → 보고 있는 다른 화면이 바로 다시 읽음.
 - 교대가 없으면 "기준정보 > 교대 에서 주간·야간을 등록" 안내. (교대의 첫 시작 시각은 스케줄 작업일 시작이기도 하다 — §7)
 - 끌어 놓기는 브라우저 기본 Drag & Drop (생산계획 Gantt 와 같은 방식), 터치 기기는 누르기 방식으로.
+
+---
+
+# 29. 출력물 완성 (10단계)
+
+구 폼별 출력물 (결정 H — 구 폼마다 정해진 것을 그대로):
+
+| 구 화면 → 신규 화면 | 출력물 | 상태 |
+|-|-|-|
+| F_IncomeAddForm·F_IncomeForm → 수주(입고) | 공정이동표, 제품표시 라벨 | 10-① |
+| F_GasForm → 작업(투입) | 작업일보 | 10-② |
+| F_WorkStandardForm → 작업표준 | 작업표준서 | 10-② |
+| F_OutForm → 출하 | 거래명세표 | 6단계 (발행 버튼 공용화 10-①) |
+| F_InspectionAddForm → 검사 | 성적서 | 6단계 |
+| F_CustomerForm·F_PartForm·F_InspectionForm·F_MonthlyClosing | 목록 엑셀·CSV·PDF 내보내기 (구 ExportHelper) | 10-③ |
+
+- 구 `ProgressSheet`(작업 진행 현황표)는 클래스만 있고 어느 화면에서도 쓰지 않는다 (F_IncomeForm 의 "진행 현황표" 버튼은 실제로 공정이동표를 출력, `F_IncomeForm.cs` 610~630행). 처리는 10-③.
+
+| 순서 | 범위 | 상태 |
+|-|-|-|
+| 10-① | 발행 공통(화면 권한·여러 건 한 파일·양식 선택 버튼) + 수주 공정이동표·제품표시 라벨 | V3.30 완료 |
+| 10-② | 작업일보·작업표준서 (+ 작업 LOT·작업표준 데이터 공급원) | 대기 |
+| 10-③ | 마감 출력·진행현황표 정리·목록 내보내기 | 대기 |
+
+## 29.1 발행 공통 + 수주 출력 — 10-①
+
+**발행 공통 (업무 화면)**
+
+| API (`/api/print`) | 규칙 |
+|-|-|
+| `GET /choices?purposeCode` | 용도의 사용 중·현재 버전 있는 양식 (기본 먼저). 권한 = 데이터 공급원 화면 읽기 |
+| `POST /documents {purposeCode, sourceIds[], printTemplateId?}` | 발행. 권한 = **데이터 공급원의 화면 읽기** (공급원마다 `MenuKey`: 검사 대상 = 검사, 출하 = 출하, 수주 = 수주 …, §12 ⑦ 일반화). 한 번에 200건까지 |
+
+- **여러 건 = 한 파일**: FIXED 는 렌더러가 같은 문서에 페이지를 이어 붙인다 (`IFixedRenderer.Compose`). EXCEL 은 건마다 채운 통합문서의 시트를 한 통합문서로 모아(`_2`, `_3` …) PDF 로 바꾼다. 발행 이력(`print_log`)은 건마다 1행 (같은 파일 해시), 발행본 보관은 1건 발행일 때만.
+- 양식: 지정하지 않으면 건마다 품목(+업체) → 품목 → 용도 기본으로 고르고, 서로 다르면 "양식을 골라 주세요" (`TEMPLATE_DIFFERS`).
+- 웹 `components/PrintButton`: 양식이 둘 이상이면 양식 선택 콤보(기본 먼저)를 붙인다. PDF 는 새 탭(팝업이 막히면 내려받기), 엑셀은 내려받기. 출하 화면 거래명세표도 이 버튼으로 바꿈 (§12 ⑤ 콤보 그대로).
+- 렌더러 공통: `LayoutOptions`(옵션 읽기, 컬럼 목록), `LayoutValues`(옵션 키 snake_case ↔ 값 키 PascalCase), `Barcodes`(ZXing CODE_128 → **SVG** — 구는 Windows 비트맵, 서버 OS 무관하게).
+
+**수주 출력** (화면 수주(입고): 목록에서 행을 골라 [공정이동표]·[제품표시 라벨], 입고 행 창에도 버튼)
+
+| 출력물 | 렌더러 | 내용 (구와 같음) |
+|-|-|-|
+| 공정이동표 | `PROCESS_SHEET` (A4) | 제목 + 바코드(수주번호) / 보안품 · 기종 · **우선순위(공통코드 `PRIORITY` 표시명·색)** / 좌측 정보 16행(거래처·품명·규격·기종·재질·수량 ea·중량 kg·단중 kg·요구경도·심부경도·경화층·조직·공정·고객로트·코일번호) × 공정 기록 16행(순서·공정명 = **수주 공정 경로 단계**, 작업로트·T.NO·수량·작업자·비고는 현장 수기) / 특기사항([별도관리]·[재작업]·[반입], [비고]) + 바코드 |
+| 제품표시 라벨 | `PRODUCT_LABEL` (65×80mm) | 제목 / 14항목 (값 한 줄, 넘치면 …) / 바코드 |
+
+- 데이터 공급원 `SALES_ORDER` = **입고 행(sales_order_item) 1건**. 수주번호(`SalesOrderNo`) = 스캔하는 입고번호 `order_item_no` (구 IncomeNo), 묶음 번호는 `OrderBundleNo`. 치환자 사전 30개(엑셀 양식용) DDL 추가.
+- 구와 다른 점: 공정 순서는 구 품목·공정의 `subp1~16` 문자열 대신 수주 행의 공정 경로(`heat_process_operation`). 특기사항의 구 "[Grade] 별도관리" 는 별도관리·재작업·반입 표시로.

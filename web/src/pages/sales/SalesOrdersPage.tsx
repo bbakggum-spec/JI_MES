@@ -9,6 +9,7 @@ import { useMemo, useState } from 'react'
 import { ApiError, api } from '../../api/client'
 import { useCan } from '../../auth/useAuth'
 import EditorWindow from '../../components/EditorWindow'
+import PrintButton from '../../components/PrintButton'
 import { useClientSettings } from '../../hooks/useClientSettings'
 import { useCommonCodes } from '../../hooks/useCommonCodes'
 import { useDataVersion } from '../../hooks/useDataVersion'
@@ -34,6 +35,7 @@ export default function SalesOrdersPage({ menuKey }: PageProps) {
   const [includeCancelled, setIncludeCancelled] = useState(false)
   const [creating, setCreating] = useState(false)
   const [editing, setEditing] = useState<number | null>(null)
+  const [selected, setSelected] = useState<number[]>([])
 
   // 기본 기간 = 오늘 − 설정 sales_order.list_default_days ~ 오늘
   const effectiveRange = range ?? (settings.orderListDays ? [dayjs().subtract(settings.orderListDays, 'day'), dayjs()] as [Dayjs, Dayjs] : null)
@@ -62,19 +64,25 @@ export default function SalesOrdersPage({ menuKey }: PageProps) {
           <Input.Search allowClear placeholder="입고번호·품목·고객LOT" style={{ width: 220 }} onSearch={(v) => setSearch(v.trim())} />
           <Space size={4}><Switch size="small" checked={openOnly} onChange={setOpenOnly} />미출하만</Space>
           <Space size={4}><Switch size="small" checked={includeCancelled} onChange={setIncludeCancelled} />취소 포함</Space>
+          {/* 구 F_IncomeForm 출력 — 고른 입고 행마다 1장, 한 파일로 */}
+          <PrintButton purposeCode="PROCESS_SHEET" sourceIds={selected}>공정이동표</PrintButton>
+          <PrintButton purposeCode="PRODUCT_LABEL" sourceIds={selected}>제품표시 라벨</PrintButton>
           {canCreate && <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreating(true)}>수주 등록</Button>}
         </Space>
       </Space>
       <Table<OrderItem> rowKey="salesOrderItemId" size="small" loading={list.isFetching} dataSource={rows} scroll={{ x: 1500 }}
         pagination={{ defaultPageSize: 50, showSizeChanger: true, showTotal: (n) => `${n}건` }}
-        onRow={(r) => ({ onClick: () => setEditing(r.salesOrderItemId), style: { cursor: 'pointer', opacity: r.status === 'CANCELLED' ? 0.5 : 1 } })}
+        rowSelection={{ selectedRowKeys: selected, onChange: (keys) => setSelected(keys as number[]), preserveSelectedRowKeys: true }}
+        // 선택 칸(체크박스)을 누르면 창을 열지 않음
+        onRow={(r) => ({ onClick: (e) => { if (!(e.target as HTMLElement).closest(".ant-table-selection-column")) setEditing(r.salesOrderItemId) }, style: { cursor: 'pointer', opacity: r.status === 'CANCELLED' ? 0.5 : 1 } })}
         summary={() => rows.length > 0 && (
           <Table.Summary.Row>
-            <Table.Summary.Cell index={0} colSpan={5}>합계</Table.Summary.Cell>
-            <Table.Summary.Cell index={5} align="right">{qty(rows.reduce((s, r) => s + (r.status === 'CANCELLED' ? 0 : r.orderQty), 0))}</Table.Summary.Cell>
-            <Table.Summary.Cell index={6} align="right">{qty(rows.reduce((s, r) => s + r.mainInputQty, 0))}</Table.Summary.Cell>
-            <Table.Summary.Cell index={7} align="right">{qty(rows.reduce((s, r) => s + r.shipmentQty, 0))}</Table.Summary.Cell>
-            <Table.Summary.Cell index={8} colSpan={7} />
+            <Table.Summary.Cell index={0} />
+            <Table.Summary.Cell index={1} colSpan={5}>합계</Table.Summary.Cell>
+            <Table.Summary.Cell index={6} align="right">{qty(rows.reduce((s, r) => s + (r.status === 'CANCELLED' ? 0 : r.orderQty), 0))}</Table.Summary.Cell>
+            <Table.Summary.Cell index={7} align="right">{qty(rows.reduce((s, r) => s + r.mainInputQty, 0))}</Table.Summary.Cell>
+            <Table.Summary.Cell index={8} align="right">{qty(rows.reduce((s, r) => s + r.shipmentQty, 0))}</Table.Summary.Cell>
+            <Table.Summary.Cell index={9} colSpan={7} />
           </Table.Summary.Row>
         )}
         columns={[
@@ -322,15 +330,17 @@ function ItemWindow({ itemId, menuKey, onClose, onChanged }: { itemId: number; m
   return (
     <EditorWindow onClose={onClose} size={900}
       title={<Space>{d.orderItemNo}<Tag color={codes.attr<{ color?: string }>('ORDER_STATUS', d.status)?.color}>{codes.name('ORDER_STATUS', d.status)}</Tag></Space>}
-      extra={editable && (
+      extra={(
         <Space>
-          {canDelete && (
+          <PrintButton purposeCode="PROCESS_SHEET" sourceIds={[d.salesOrderItemId]}>공정이동표</PrintButton>
+          <PrintButton purposeCode="PRODUCT_LABEL" sourceIds={[d.salesOrderItemId]}>라벨</PrintButton>
+          {editable && canDelete && (
             <Popconfirm title="이 입고 행을 취소합니다" okText="취소 처리" okButtonProps={{ danger: true }} onConfirm={() => void cancel()}
               description={<Input placeholder="사유 (선택)" value={reason} onChange={(e) => setReason(e.target.value)} />}>
               <Button danger disabled={d.isScheduledOrInput || d.shipmentQty > 0}>입고 취소</Button>
             </Popconfirm>
           )}
-          <Button type="primary" loading={saving} onClick={() => void save()}>저장</Button>
+          {editable && <Button type="primary" loading={saving} onClick={() => void save()}>저장</Button>}
         </Space>
       )}>
       <Descriptions size="small" column={3} bordered style={{ marginBottom: 16 }} items={[

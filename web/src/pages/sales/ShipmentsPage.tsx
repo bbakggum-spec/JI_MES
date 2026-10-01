@@ -1,13 +1,14 @@
-import { DeleteOutlined, FilePdfOutlined, PlusOutlined } from '@ant-design/icons'
+import { DeleteOutlined, PlusOutlined } from '@ant-design/icons'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Alert, App, Button, Checkbox, Col, DatePicker, Form, Input, InputNumber, Popconfirm, Row, Select, Space, Statistic, Switch, Table, Tag, Typography,
 } from 'antd'
 import dayjs, { type Dayjs } from 'dayjs'
 import { useState } from 'react'
-import { ApiError, api, apiFile, saveFile } from '../../api/client'
+import { ApiError, api } from '../../api/client'
 import { useCan } from '../../auth/useAuth'
 import EditorWindow from '../../components/EditorWindow'
+import PrintButton from '../../components/PrintButton'
 import { useClientSettings } from '../../hooks/useClientSettings'
 import { useCommonCodes } from '../../hooks/useCommonCodes'
 import { useOptions } from '../../hooks/useOptions'
@@ -127,14 +128,6 @@ function ShipmentWindow({ id, menuKey, onClose, onChanged }: { id: number | null
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
-  // 거래명세표 양식: 기본(당사 양식) 외에 등록한 엑셀 양식(업체 전용 등)으로 바꿔 출력 — 설계 §12 ⑤
-  const slipTemplates = useQuery({
-    queryKey: [...queryKeys.print, 'choices', 'SHIPMENT_SLIP'],
-    queryFn: () => api<{ printTemplateId: number; printTemplateName: string; templateKind: string; isDefault: boolean }[]>('/api/shipments/slip-templates'),
-    enabled: id !== null,
-  })
-  const [slipTemplateId, setSlipTemplateId] = useState<number>()
-  const selectedSlip = slipTemplateId ?? slipTemplates.data?.find((t) => t.isDefault)?.printTemplateId ?? slipTemplates.data?.[0]?.printTemplateId
   if (id !== null && !d) return null
   const s = d?.shipment
   const editable = s ? s.status !== 'CANCELLED' && s.closingStatus !== 'CLOSED' && canUpdate : canCreate
@@ -175,10 +168,6 @@ function ShipmentWindow({ id, menuKey, onClose, onChanged }: { id: number | null
       setBusy(false)
     }
   }
-  const slip = async () => {
-    const q = selectedSlip ? `?printTemplateId=${selectedSlip}` : ''
-    try { saveFile(await apiFile(`/api/shipments/${id}/slip${q}`, { method: 'POST' })) } catch (e) { message.error(errorText(e)) }
-  }
 
   return (
     <EditorWindow onClose={onClose} size={1400}
@@ -186,14 +175,7 @@ function ShipmentWindow({ id, menuKey, onClose, onChanged }: { id: number | null
         : <Tag color={codes.attr<{ color?: string }>('CLOSING_STATUS', s.closingStatus)?.color}>{codes.name('CLOSING_STATUS', s.closingStatus)}</Tag>}</Space> : '출하 등록'}
       extra={(
         <Space>
-          {s && s.status !== 'CANCELLED' && (
-            <Space.Compact>
-              <Select aria-label="거래명세표 양식" style={{ width: 200 }} value={selectedSlip} loading={slipTemplates.isLoading}
-                onChange={setSlipTemplateId} popupMatchSelectWidth={false}
-                options={(slipTemplates.data ?? []).map((t) => ({ value: t.printTemplateId, label: t.isDefault ? `${t.printTemplateName} (기본)` : t.printTemplateName }))} />
-              <Button icon={<FilePdfOutlined />} onClick={() => void slip()}>거래명세표</Button>
-            </Space.Compact>
-          )}
+          {s && s.status !== 'CANCELLED' && <PrintButton purposeCode="SHIPMENT_SLIP" sourceIds={[id!]}>거래명세표</PrintButton>}
           {s && editable && canDelete && (
             <Popconfirm title="이 전표를 취소합니다" description="출하 수량은 재고로 돌아갑니다." onConfirm={() => void (async () => {
               try {

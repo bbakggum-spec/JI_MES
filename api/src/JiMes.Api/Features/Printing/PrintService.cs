@@ -12,6 +12,9 @@ namespace JiMes.Api.Features.Printing;
 
 public sealed record IssueRequest(string PurposeCode, long SourceId, long? PrintTemplateId);
 
+/// <summary>화면 발행 — 여러 건이면 한 파일로 이어서 (공정이동표·라벨 여러 장 등)</summary>
+public sealed record IssueManyRequest(string? PurposeCode, IReadOnlyList<long>? SourceIds, long? PrintTemplateId);
+
 public sealed record PrintResult(long PrintLogId, string FileName, string ContentType, byte[] Content);
 
 /// <summary>발행 화면의 양식 선택 콤보 항목 (사용 중 + 현재 버전 있는 양식만)</summary>
@@ -29,7 +32,7 @@ public sealed class TemplateChoice
 /// </summary>
 public sealed class PrintService(
     IDbConnectionFactory db, IEnumerable<IPrintDataProvider> providers, IEnumerable<IFixedRenderer> renderers,
-    PdfConverter pdf, SettingsCache settings, ICurrentUser currentUser, TimeProvider time)
+    PdfConverter pdf, SettingsCache settings, ICurrentUser currentUser, TimeProvider time, PermissionService permissions)
 {
     internal sealed class PurposeRow
     {
@@ -73,17 +76,63 @@ public sealed class PrintService(
             """, new { purposeCode });
     }
 
-    public async Task<PrintResult> IssueAsync(IssueRequest request, CancellationToken ct)
+    public Task<PrintResult> IssueAsync(IssueRequest request, CancellationToken ct) =>
+        IssueManyCoreAsync(request.PurposeCode, [request.SourceId], request.PrintTemplateId, checkMenu: false, ct);
+
+    /// <summary>
+    /// 업무 화면 발행 (`POST /api/print/documents`) — 권한 = 데이터 공급원의 화면 읽기 권한 (§12 ⑦).
+    /// 여러 건은 한 파일: FIXED 는 페이지를 이어 붙이고, EXCEL 은 시트를 한 통합문서로 모은 뒤 변환한다. 발행 이력은 건마다.
+    /// </summary>
+    public Task<PrintResult> IssueManyAsync(IssueManyRequest request, CancellationToken ct)
+    {
+        var ids = request.SourceIds?.Distinct().ToList() ?? [];
+        if (string.IsNullOrWhiteSpace(request.PurposeCode)) throw new RequestValidationException("purposeCode", "출력 용도가 없습니다.");
+        if (ids.Count == 0) throw new RequestValidationException("sourceIds", "출력할 대상을 고르세요.");
+        if (ids.Count > MaxBatch) throw new RequestValidationException("sourceIds", $"한 번에 {MaxBatch}건까지 출력할 수 있습니다.");
+        return IssueManyCoreAsync(request.PurposeCode, ids, request.PrintTemplateId, checkMenu: true, ct);
+    }
+
+    private const int MaxBatch = 200;
+
+    /// <summary>발행 화면의 양식 선택 — 용도의 데이터 공급원 화면 읽기 권한으로</summary>
+    public async Task<IEnumerable<TemplateChoice>> ChoicesForScreenAsync(string purposeCode, CancellationToken ct)
+    {
+        await using (var conn = await db.OpenAsync(ct))
+            await EnsureMenuAsync(ProviderFor((await PurposeAsync(conn, purposeCode)).DataSourceCode), ct);
+        return await ChoicesAsync(purposeCode, ct);
+    }
+
+    private async Task<PrintResult> IssueManyCoreAsync(string purposeCode, IReadOnlyList<long> sourceIds, long? templateId, bool checkMenu, CancellationToken ct)
     {
         await using var conn = await db.OpenAsync(ct);
-        var purpose = await PurposeAsync(conn, request.PurposeCode);
+        var purpose = await PurposeAsync(conn, purposeCode);
         var provider = ProviderFor(purpose.DataSourceCode);
+        if (checkMenu) await EnsureMenuAsync(provider, ct);
         var fields = await FieldsAsync(conn, purpose.PrintDataSourceId, provider.AllowLegacyGridKeys);
         var issuedAt = Now();
-        var source = await provider.LoadAsync(conn, request.SourceId, fields, issuedAt, ct);
-        var template = await ResolveTemplateAsync(conn, purpose, source.PartId, source.CustomerId, request.PrintTemplateId);
-        return await RenderAndLogAsync(conn, purpose, provider, template, fields, source.Data, request.SourceId, source.FileNameHint,
+        var sources = new List<(long Id, PrintSource Source)>();
+        foreach (var id in sourceIds)
+            sources.Add((id, await provider.LoadAsync(conn, id, fields, issuedAt, ct)));
+        // 양식: 지정 양식, 아니면 건마다 고른 양식이 모두 같아야 한 파일로 낼 수 있다
+        TemplateVersionRow? template = null;
+        foreach (var (_, s) in sources)
+        {
+            var t = await ResolveTemplateAsync(conn, purpose, s.PartId, s.CustomerId, templateId);
+            if (template is not null && t.PrintTemplateVersionId != template.PrintTemplateVersionId)
+                throw new BusinessRuleException("TEMPLATE_DIFFERS", "품목마다 연결된 양식이 달라 한 파일로 낼 수 없습니다. 양식을 골라 주세요.");
+            template = t;
+        }
+        var hint = sources.Count == 1 ? sources[0].Source.FileNameHint : $"{sources[0].Source.FileNameHint}_외{sources.Count - 1}건";
+        var (content, format) = await RenderAsync(template!, fields, sources.Select(s => s.Source.Data).ToList(), ct);
+        return await LogAsync(conn, purpose, provider, template!, sources.Select(s => (s.Id, s.Source.Data)).ToList(), content, format, hint,
             issuedAt, reprintOf: null, ct);
+    }
+
+    private async Task EnsureMenuAsync(IPrintDataProvider provider, CancellationToken ct)
+    {
+        var access = await permissions.GetAsync(currentUser.UserId ?? 0, ct);
+        if (!access.Has(provider.MenuKey, PermissionAction.Read))
+            throw new ForbiddenException("이 출력물을 발행할 권한이 없습니다.");
     }
 
     /// <summary>재발행 — 당시 양식 버전 + 당시 치환값으로 같은 내용 (§15.2 P8). 이미지는 원본 첨부를 다시 읽는다.</summary>
@@ -115,7 +164,8 @@ public sealed class PrintService(
             SELECT {VersionColumns} FROM print_template_version v JOIN print_template t ON t.print_template_id = v.print_template_id
              WHERE v.print_template_version_id = @VersionId
             """, new { log.VersionId });
-        return await RenderAndLogAsync(conn, purpose, provider, template, fields, data, log.SourceId, live.FileNameHint,
+        var (content, format) = await RenderAsync(template, fields, [data], ct);
+        return await LogAsync(conn, purpose, provider, template, [(log.SourceId, data)], content, format, live.FileNameHint,
             issuedAt, reprintOf: printLogId, ct);
     }
 
@@ -156,48 +206,54 @@ public sealed class PrintService(
         return row;
     }
 
-    private async Task<PrintResult> RenderAndLogAsync(
-        MySqlConnection conn, PurposeRow purpose, IPrintDataProvider provider, TemplateVersionRow template, FieldDictionary fields,
-        PrintData data, long sourceId, string hint, DateTime issuedAt, long? reprintOf, CancellationToken ct)
+    private async Task<(byte[] Content, string Format)> RenderAsync(
+        TemplateVersionRow template, FieldDictionary fields, IReadOnlyList<PrintData> items, CancellationToken ct)
     {
-        byte[] content;
-        string format;
         if (template.TemplateKind == "FIXED")
         {
             var renderer = renderers.FirstOrDefault(r => r.RendererKey == template.RendererKey)
                 ?? throw new BusinessRuleException("RENDERER_NOT_FOUND", $"고정 양식 렌더러 '{template.RendererKey}' 가 없습니다.");
-            content = renderer.Render(data, template.LayoutOptionsJson);
-            format = "PDF";
+            return (renderer.RenderMany(items, template.LayoutOptionsJson), "PDF");
         }
-        else
-        {
-            var xlsx = ExcelTemplateRenderer.Render(template.FileContent!, data, fields);
-            format = template.OutputFormat;
-            content = format == "PDF" ? await pdf.ConvertXlsxAsync(xlsx, ct) : xlsx;
-        }
+        var books = items.Select(data => ExcelTemplateRenderer.Render(template.FileContent!, data, fields)).ToList();
+        var xlsx = books.Count == 1 ? books[0] : ExcelTemplateRenderer.Combine(books);
+        var format = template.OutputFormat;
+        return (format == "PDF" ? await pdf.ConvertXlsxAsync(xlsx, ct) : xlsx, format);
+    }
 
+    /// <summary>발행 이력 — 건마다 1행 (같은 파일이면 해시 같음). 발행본 보관은 1건 발행일 때만</summary>
+    private async Task<PrintResult> LogAsync(
+        MySqlConnection conn, PurposeRow purpose, IPrintDataProvider provider, TemplateVersionRow template,
+        IReadOnlyList<(long SourceId, PrintData Data)> items, byte[] content, string format, string hint, DateTime issuedAt, long? reprintOf,
+        CancellationToken ct)
+    {
         var fileName = $"{purpose.PurposeName}_{hint}.{format.ToLowerInvariant()}";
-        var keep = settings.GetJson<string[]>(SettingKeys.PrintKeepIssuedOutput).Contains(purpose.PurposeCode);
+        var keep = items.Count == 1 && settings.GetJson<string[]>(SettingKeys.PrintKeepIssuedOutput).Contains(purpose.PurposeCode);
+        var hash = Convert.ToHexStringLower(SHA256.HashData(content));
 
         await using var tx = await conn.BeginTransactionAsync(ct);
-        var logId = await conn.ExecuteScalarAsync<long>(
-            """
-            INSERT INTO print_log (print_template_version_id, print_purpose_id, source_table, source_id, output_format, output_file_name,
-                                   output_file_hash, output_content, data_snapshot_json, reprint_of_id, printed_at, printed_by)
-            VALUES (@PrintTemplateVersionId, @PrintPurposeId, @sourceTable, @sourceId, @format, @fileName,
-                    @hash, @stored, @snapshot, @reprintOf, @issuedAt, @userId);
-            SELECT LAST_INSERT_ID();
-            """,
-            new
-            {
-                template.PrintTemplateVersionId, purpose.PrintPurposeId, sourceTable = provider.SourceTable, sourceId, format, fileName,
-                hash = Convert.ToHexStringLower(SHA256.HashData(content)), stored = keep ? content : null,
-                snapshot = data.ToSnapshotJson(), reprintOf, issuedAt, userId = currentUser.UserId,
-            }, tx);
-        await provider.OnIssuedAsync(conn, tx, sourceId, template.PrintTemplateId, issuedAt);
+        long firstLogId = 0;
+        foreach (var (sourceId, data) in items)
+        {
+            var logId = await conn.ExecuteScalarAsync<long>(
+                """
+                INSERT INTO print_log (print_template_version_id, print_purpose_id, source_table, source_id, output_format, output_file_name,
+                                       output_file_hash, output_content, data_snapshot_json, reprint_of_id, printed_at, printed_by)
+                VALUES (@PrintTemplateVersionId, @PrintPurposeId, @sourceTable, @sourceId, @format, @fileName,
+                        @hash, @stored, @snapshot, @reprintOf, @issuedAt, @userId);
+                SELECT LAST_INSERT_ID();
+                """,
+                new
+                {
+                    template.PrintTemplateVersionId, purpose.PrintPurposeId, sourceTable = provider.SourceTable, sourceId, format, fileName,
+                    hash, stored = keep ? content : null, snapshot = data.ToSnapshotJson(), reprintOf, issuedAt, userId = currentUser.UserId,
+                }, tx);
+            if (firstLogId == 0) firstLogId = logId;
+            await provider.OnIssuedAsync(conn, tx, sourceId, template.PrintTemplateId, issuedAt);
+        }
         await tx.CommitAsync(ct);
 
-        return new PrintResult(logId, fileName,
+        return new PrintResult(firstLogId, fileName,
             format == "PDF" ? "application/pdf" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", content);
     }
 

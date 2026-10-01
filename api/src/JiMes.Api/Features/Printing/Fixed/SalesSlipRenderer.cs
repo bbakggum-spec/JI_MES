@@ -15,34 +15,6 @@ public sealed class SalesSlipRenderer : IFixedRenderer
 {
     public string RendererKey => "SALES_SLIP";
 
-    private sealed class Options(JsonNode? root)
-    {
-        private readonly JsonNode? _root = root;
-
-        public float Num(string path, float fallback) => Node(path) is JsonValue v && v.TryGetValue(out double d) ? (float)d : fallback;
-        public int Int(string path, int fallback) => (int)Num(path, fallback);
-        public bool Bool(string path, bool fallback) => Node(path) is JsonValue v && v.TryGetValue(out bool b) ? b : fallback;
-        public string Str(string path, string fallback) => Node(path) is JsonValue v && v.TryGetValue(out string? s) && s is not null ? s : fallback;
-
-        public JsonArray? Array(string path) => Node(path) as JsonArray;
-
-        /// <summary>문자열 하나 또는 문자열 목록</summary>
-        public IReadOnlyList<string> Strings(string path, params string[] fallback) => Node(path) switch
-        {
-            JsonValue v when v.TryGetValue(out string? s) && s is not null => [s],
-            JsonArray a => a.Select(x => x?.GetValue<string>()).OfType<string>().ToList() is { Count: > 0 } list ? list : fallback,
-            _ => fallback,
-        };
-
-        private JsonNode? Node(string path)
-        {
-            var node = _root;
-            foreach (var part in path.Split('.'))
-                node = node is JsonObject o && o.TryGetPropertyValue(part, out var next) ? next : null;
-            return node;
-        }
-    }
-
     private sealed record Copy(string Label, string BorderColor);
 
     private sealed record Column(string Key, string Title, float? Width, float Relative, string? Format);
@@ -56,9 +28,8 @@ public sealed class SalesSlipRenderer : IFixedRenderer
         new("Vat", "세액", 50, 0, "#,##0"),
     ];
 
-    public byte[] Render(PrintData data, string? optionsJson)
+    public void Compose(IDocumentContainer doc, PrintData data, LayoutOptions o)
     {
-        var o = new Options(string.IsNullOrWhiteSpace(optionsJson) ? null : JsonNode.Parse(optionsJson));
         var perPage = Math.Max(o.Int("items_per_page", 6), 1);
         var items = data.Lists.GetValueOrDefault("Items") ?? [];
         var pages = items.Count == 0 ? [[]] : items.Chunk(perPage).Select(c => c.ToList()).ToList();
@@ -69,9 +40,7 @@ public sealed class SalesSlipRenderer : IFixedRenderer
         var stamp = o.Bool("stamp.show", true) ? data.Images.GetValueOrDefault("Stamp") : null;
         var fonts = PdfFonts.Pick(o.Strings("font.family", "굴림체", "GulimChe", "맑은 고딕"));
 
-        return Document.Create(doc =>
-        {
-            doc.Page(page =>
+        doc.Page(page =>
             {
                 page.Size(o.Str("page.orientation", "PORTRAIT") == "LANDSCAPE" ? PageSizes.A4.Landscape() : PageSizes.A4);
                 page.Margin(o.Num("page.margin", 20));
@@ -118,10 +87,9 @@ public sealed class SalesSlipRenderer : IFixedRenderer
                     }
                 });
             });
-        }).GeneratePdf();
     }
 
-    private static Column[] ReadColumns(Options o)
+    private static Column[] ReadColumns(LayoutOptions o)
     {
         var array = o.Array("columns");
         if (array is null) return DefaultColumns;
@@ -137,7 +105,7 @@ public sealed class SalesSlipRenderer : IFixedRenderer
     }
 
     private static void Slip(
-        IContainer container, Options o, PrintData data, List<Dictionary<string, object?>> items, Column[] columns,
+        IContainer container, LayoutOptions o, PrintData data, List<Dictionary<string, object?>> items, Column[] columns,
         Copy copy, int pageIndex, int pageCount, int perPage)
     {
         var border = o.Num("border.cell", 0.5f);

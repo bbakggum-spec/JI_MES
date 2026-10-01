@@ -2069,7 +2069,37 @@ SELECT ds.print_data_source_id, v.k, v.a, v.t, v.g, v.f, v.d, v.s, v.o
         UNION ALL SELECT 'SHIPMENT', 'Items.Vat', NULL, 'NUMBER', '품목', '#,##0', '행 세액 = 금액 × 세율 (표시용)', NULL, 112
         UNION ALL SELECT 'SHIPMENT', 'Items.SubmitLot', NULL, 'TEXT', '품목', NULL, NULL, NULL, 113
         UNION ALL SELECT 'SHIPMENT', 'Items.CustomerLot', NULL, 'TEXT', '품목', NULL, NULL, NULL, 114
-        UNION ALL SELECT 'SHIPMENT', 'Stamp', '도장', 'IMAGE', '공급자', NULL, 'company.stamp_image', NULL, 120) v
+        UNION ALL SELECT 'SHIPMENT', 'Stamp', '도장', 'IMAGE', '공급자', NULL, 'company.stamp_image', NULL, 120
+        UNION ALL SELECT 'SALES_ORDER', 'SalesOrderNo', '수주번호', 'TEXT', '수주', NULL, '스캔하는 입고번호 (order_item_no, 구 IncomeNo) — 바코드', 'I260930-001', 10
+        UNION ALL SELECT 'SALES_ORDER', 'OrderBundleNo', '수주묶음번호', 'TEXT', '수주', NULL, '한 번에 등록한 묶음 번호', 'SO260930-001', 11
+        UNION ALL SELECT 'SALES_ORDER', 'OrderDate', '입고일', 'DATE', '수주', 'yyyy-MM-dd', NULL, '2026-09-30', 12
+        UNION ALL SELECT 'SALES_ORDER', 'DueDate', '납기', 'DATE', '수주', 'yyyy-MM-dd', NULL, NULL, 13
+        UNION ALL SELECT 'SALES_ORDER', 'IssueDate', '발행일', 'DATE', '수주', 'yyyy-MM-dd', NULL, '2026-09-30', 14
+        UNION ALL SELECT 'SALES_ORDER', 'CustomerName', '거래처', 'TEXT', '수주', NULL, NULL, '한독기어', 20
+        UNION ALL SELECT 'SALES_ORDER', 'PartCode', '품목코드', 'TEXT', '품목', NULL, NULL, NULL, 30
+        UNION ALL SELECT 'SALES_ORDER', 'PartName', '품명', 'TEXT', '품목', NULL, '입고 당시 Snapshot', '헬리컬 기어', 31
+        UNION ALL SELECT 'SALES_ORDER', 'PartNumber', '품번', 'TEXT', '품목', NULL, NULL, NULL, 32
+        UNION ALL SELECT 'SALES_ORDER', 'Specification', '규격', 'TEXT', '품목', NULL, NULL, NULL, 33
+        UNION ALL SELECT 'SALES_ORDER', 'Model', '기종', 'TEXT', '품목', NULL, NULL, 'HD-01', 34
+        UNION ALL SELECT 'SALES_ORDER', 'Material', '재질', 'TEXT', '품목', NULL, NULL, 'SCM420', 35
+        UNION ALL SELECT 'SALES_ORDER', 'Qty', '수량', 'NUMBER', '수량', '#,##0', NULL, '400', 40
+        UNION ALL SELECT 'SALES_ORDER', 'Weight', '중량', 'NUMBER', '수량', '#,##0.##', NULL, NULL, 41
+        UNION ALL SELECT 'SALES_ORDER', 'UnitWeight', '단중', 'NUMBER', '수량', '0.000', NULL, NULL, 42
+        UNION ALL SELECT 'SALES_ORDER', 'Hardness', '요구경도', 'TEXT', '요구사항', NULL, NULL, 'HRC 58~62', 50
+        UNION ALL SELECT 'SALES_ORDER', 'CoreHardness', '심부경도', 'TEXT', '요구사항', NULL, NULL, NULL, 51
+        UNION ALL SELECT 'SALES_ORDER', 'CaseDepth', '경화층', 'TEXT', '요구사항', NULL, NULL, '0.8~1.2', 52
+        UNION ALL SELECT 'SALES_ORDER', 'Texture', '조직', 'TEXT', '요구사항', NULL, NULL, NULL, 53
+        UNION ALL SELECT 'SALES_ORDER', 'HeatProcess', '공정', 'TEXT', '요구사항', NULL, '열처리 공정명', '침탄', 54
+        UNION ALL SELECT 'SALES_ORDER', 'CustomerLot', '고객로트', 'TEXT', '수주', NULL, NULL, NULL, 60
+        UNION ALL SELECT 'SALES_ORDER', 'CoilNo', '코일번호', 'TEXT', '수주', NULL, NULL, NULL, 61
+        UNION ALL SELECT 'SALES_ORDER', 'CustomerWorkOrderNo', '고객작업지시번호', 'TEXT', '수주', NULL, NULL, NULL, 62
+        UNION ALL SELECT 'SALES_ORDER', 'PriorityName', '우선순위', 'TEXT', '수주', NULL, '공통코드 PRIORITY 표시명', '일반', 63
+        UNION ALL SELECT 'SALES_ORDER', 'SpecialNote', '특기사항', 'TEXT', '수주', NULL, '[별도관리] [재작업] [반입]', NULL, 64
+        UNION ALL SELECT 'SALES_ORDER', 'Remark', '비고', 'TEXT', '수주', NULL, NULL, NULL, 65
+        UNION ALL SELECT 'SALES_ORDER', 'Processes', '공정순서', 'LIST', '공정', NULL, '수주 공정 경로 단계', NULL, 100
+        UNION ALL SELECT 'SALES_ORDER', 'Processes.Seq', NULL, 'NUMBER', '공정', NULL, NULL, '1', 101
+        UNION ALL SELECT 'SALES_ORDER', 'Processes.UnitProcess', NULL, 'TEXT', '공정', NULL, NULL, '침탄', 102
+        UNION ALL SELECT 'SALES_ORDER', 'Processes.IsMain', NULL, 'TEXT', '공정', NULL, '주공정이면 "주"', NULL, 103) v
   JOIN print_data_source ds ON ds.data_source_code = v.ds;
 
 -- =====================================================================

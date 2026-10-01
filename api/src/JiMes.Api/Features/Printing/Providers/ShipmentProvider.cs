@@ -14,6 +14,7 @@ namespace JiMes.Api.Features.Printing.Providers;
 public sealed class ShipmentProvider(CommonCodeCache codes, SettingsCache settings) : IPrintDataProvider
 {
     public string DataSourceCode => "SHIPMENT";
+    public string MenuKey => JiMes.Api.Infrastructure.Security.MenuKeys.SalesShipment;
     public string SourceTable => "shipment";
 
     private sealed class ShipmentRow

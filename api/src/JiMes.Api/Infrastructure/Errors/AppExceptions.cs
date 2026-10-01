@@ -32,3 +32,7 @@ public sealed class RequestValidationException(IDictionary<string, string[]> err
     public RequestValidationException(string field, string error)
         : this(new Dictionary<string, string[]> { [field] = [error] }) { }
 }
+
+/// <summary>엔드포인트 권한은 있으나 대상(데이터 공급원 화면 등)에 권한이 없음.</summary>
+public sealed class ForbiddenException(string message)
+    : AppException(StatusCodes.Status403Forbidden, "FORBIDDEN", message);

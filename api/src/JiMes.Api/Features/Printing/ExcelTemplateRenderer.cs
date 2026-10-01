@@ -15,6 +15,29 @@ namespace JiMes.Api.Features.Printing;
 /// </summary>
 public static class ExcelTemplateRenderer
 {
+    /// <summary>
+    /// 여러 건 발행 — 건마다 채운 통합문서의 시트를 한 통합문서로 모은다 (시트 이름 뒤에 _2, _3 …).
+    /// PDF 변환하면 시트 순서대로 이어진 한 파일이 된다. 인쇄 영역·페이지 설정은 시트 복사로 함께 옮겨진다.
+    /// </summary>
+    public static byte[] Combine(IReadOnlyList<byte[]> books)
+    {
+        using var first = new MemoryStream(books[0]);
+        using var target = new XLWorkbook(first);
+        for (var i = 1; i < books.Count; i++)
+        {
+            using var stream = new MemoryStream(books[i]);
+            using var source = new XLWorkbook(stream);
+            foreach (var ws in source.Worksheets)
+            {
+                var name = $"{ws.Name}_{i + 1}";
+                ws.CopyTo(target, name.Length > 31 ? name[^31..] : name);
+            }
+        }
+        using var output = new MemoryStream();
+        target.SaveAs(output);
+        return output.ToArray();
+    }
+
     public static byte[] Render(byte[] template, PrintData data, FieldDictionary fields)
     {
         using var input = new MemoryStream(template);

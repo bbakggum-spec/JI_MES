@@ -105,6 +105,9 @@ public static class PrintEndpoints
             .RequirePermission(key, PermissionAction.Update);
         g.MapGet("/versions/{id:long}/file", VersionFileAsync).RequirePermission(key, PermissionAction.Read);
 
+        // 업무 화면 발행 — 권한은 데이터 공급원 화면 읽기 (서비스가 확인), 여러 건은 한 파일
+        g.MapGet("/choices", (string purposeCode, PrintService s, CancellationToken ct) => s.ChoicesForScreenAsync(purposeCode, ct)).RequireLogin();
+        g.MapPost("/documents", async (IssueManyRequest r, PrintService s, CancellationToken ct) => FileOf(await s.IssueManyAsync(r, ct))).RequireLogin();
         g.MapPost("/issue", async (IssueRequest r, PrintService s, CancellationToken ct) => FileOf(await s.IssueAsync(r, ct)))
             .RequirePermission(key, PermissionAction.Read);
         g.MapPost("/logs/{id:long}/reprint", async (long id, PrintService s, CancellationToken ct) => FileOf(await s.ReprintAsync(id, ct)))
