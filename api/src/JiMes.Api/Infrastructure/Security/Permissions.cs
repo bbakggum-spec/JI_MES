@@ -23,6 +23,7 @@ public static class MenuKeys
     public const string MasterStepTemplate = "master.step_template";
     public const string MasterStandard = "master.standard";
     public const string MasterInspectionStandard = "master.inspection_standard";
+    public const string EquipmentDowntime = "equipment.downtime";
 
     public const string SystemUser = "system.user";
     public const string SystemRole = "system.role";

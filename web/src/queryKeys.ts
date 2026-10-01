@@ -18,4 +18,5 @@ export const queryKeys = {
   reports: ['reports'] as const,
   dashboard: ['dashboard'] as const,
   admin: ['admin'] as const,
+  equipment: ['equipment'] as const,
 }

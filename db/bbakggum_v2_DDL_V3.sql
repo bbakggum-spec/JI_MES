@@ -2260,7 +2260,9 @@ SELECT v.k, v.n, p.menu_id, v.r, v.o
         UNION ALL SELECT 'system.setting', '관리자 설정', 'system', '/system/settings',   30
         UNION ALL SELECT 'system.code',    '공통코드',    'system', '/system/codes',      40
         UNION ALL SELECT 'system.audit',   '변경 이력',   'system', '/system/audit-logs', 50
-        UNION ALL SELECT 'system.print',   '출력 양식',   'system', '/system/print-templates', 60) v
+        UNION ALL SELECT 'system.print',   '출력 양식',   'system', '/system/print-templates', 60
+        UNION ALL SELECT 'equipment.downtime', '비가동', 'equipment', '/equipment/downtime', 10
+        UNION ALL SELECT 'master.unit_inspection_item', '공정검사 항목', 'master', '/master/unit-inspection-item', 68) v
   JOIN menu p ON p.menu_key = v.parent;
 
 -- 관리자 = 모든 메뉴 전체 권한 (메뉴 INSERT 뒤에 둔다)

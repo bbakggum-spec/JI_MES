@@ -112,6 +112,18 @@ public static class MasterCatalog
             Description = "작업표준·직전 작업이 없을 때 스케줄 작업시간 (설계 §7 ③). 생산계획 입력창에서도 등록됨",
         },
 
+        new("unit_inspection_item", "unit_inspection_item", "공정검사 항목", "master.unit_inspection_item", "item_name",
+        [
+            CodeField("item_code"),
+            Name("item_name"),
+            new("unit_process_id", "단위공정", Lookup) { Lookup = "unit_process", Width = 110, Help = "비우면 모든 단위공정 공통" },
+            Sort(), Active(),
+        ])
+        {
+            OrderBy = "sort_order, item_code",
+            Description = "라인검사(공정검사) 측정 항목 — 구 t_unitinspectionitem (외관·표면경도·심부경도·경화층·조직·치수)",
+        },
+
         new("defect_reason", "defect_reason", "불량 사유", "master.defect_reason", "defect_reason_name",
         [CodeField("defect_reason_code"), Name("defect_reason_name"), new("defect_category", "분류") { MaxLength = 50, Width = 110 }, Sort(), Active()])
         { OrderBy = "sort_order, defect_reason_code" },
