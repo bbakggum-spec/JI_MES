@@ -16,6 +16,7 @@ public static class MenuKeys
     public const string ProductionWork = "production.work";
     public const string QualityInspection = "quality.inspection";
     public const string QualityDefect = "quality.defect";
+    public const string ReportLot = "report.lot";
     public const string MasterPart = "master.part";
     public const string MasterHeatProcess = "master.heat_process";
     public const string MasterStepTemplate = "master.step_template";

@@ -10,6 +10,7 @@ using JiMes.Api.Features.Master.Process;
 using JiMes.Api.Features.Printing;
 using JiMes.Api.Features.Production;
 using JiMes.Api.Features.Quality;
+using JiMes.Api.Features.Reports;
 using JiMes.Api.Features.Sales;
 using JiMes.Api.Features.Printing.Fixed;
 using JiMes.Api.Features.Printing.Providers;
@@ -102,6 +103,7 @@ services.AddScoped<InspectionService>();
 services.AddScoped<DefectService>();
 services.AddScoped<ShipmentService>();
 services.AddScoped<ClosingService>();
+services.AddScoped<LotReportService>();
 services.AddHostedService<ScheduleDelayMonitor>();
 
 // 출력 (EXCEL / FIXED, §5.3). QuestPDF 라이선스는 설정으로 명시 (구 WinForms 와 같은 Community — 적용 조건은 설계 §12 확인)
@@ -152,6 +154,7 @@ app.MapWorkEndpoints();
 app.MapInspectionEndpoints();
 app.MapDefectEndpoints();
 app.MapShipmentEndpoints();
+app.MapReportEndpoints();
 app.MapHub<EventsHub>(EventsHub.Route).RequireLogin();
 // SPA 라우팅: /api·/hubs 가 아닌 경로는 index.html (없는 API 는 404 유지)
 app.MapFallbackToFile("{*path:nonfile:regex(^(?!api/|hubs/).*$)}", "index.html").AllowAnonymous();

@@ -2231,6 +2231,7 @@ SELECT v.k, v.n, p.menu_id, v.r, v.o
         UNION ALL SELECT 'sales.shipment',          '출하',          'sales', '/sales/shipments', 20
         UNION ALL SELECT 'sales.closing',           '마감',          'sales', '/sales/closings', 30
         UNION ALL SELECT 'quality.inspection',      '검사',          'quality', '/quality/inspections', 10
+        UNION ALL SELECT 'report.lot',              'LOT 현황·추적', 'report', '/report/lots', 10
         UNION ALL SELECT 'quality.defect',          '부적합',        'quality', '/quality/defects', 20
         UNION ALL SELECT 'master.company',          '자사 정보',     'master', '/master/company', 10
         UNION ALL SELECT 'master.customer',         '거래처',        'master', '/master/customer', 20
