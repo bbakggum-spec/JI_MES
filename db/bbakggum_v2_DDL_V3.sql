@@ -2099,7 +2099,8 @@ INSERT INTO common_code_group (group_code, group_name, description) VALUES
  ('ORDER_STATUS',        '수주 상태',     'sales_order / sales_order_item.status CHECK 값'),
  ('INSPECTION_STATUS',   '검사 상태',     'inspection.status CHECK 값 (저장=미확정, 확정)'),
  ('DEFECT_STATUS',       '부적합 상태',   'defect_occurrence.status CHECK 값 (구 check_complete·plan_complete)'),
- ('CLOSING_RUN_STATUS',  '마감 실행 상태', 'shipment_closing.closing_status CHECK 값');
+ ('CLOSING_RUN_STATUS',  '마감 실행 상태', 'shipment_closing.closing_status CHECK 값'),
+ ('DOWNTIME_REASON',     '비가동 사유',   'equipment_downtime.reason_code — 구 t_combolist 비가동사유 (사용자 관리, 이관 시 채움)');
 
 INSERT INTO common_code (common_code_group_id, code, code_name, sort_order, attr_json, is_system)
 SELECT g.common_code_group_id, v.code, v.name, v.ord, v.attr, 1

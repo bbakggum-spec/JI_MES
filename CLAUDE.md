@@ -11,6 +11,8 @@
 | `db/test/smoke_scenario.sql` | 업무 흐름 스모크 시나리오 (DDL 변경 후 반드시 실행) |
 | `db/dev/dev-db.ps1` | 개발 DB 관리 (3307 포트, 로컬 전용). `seed_dev.sql` = 화면 확인용 개발 데이터 |
 | `db/test/legacy/` | 구 SP 비교용 (원문 복사, 테스트가 `jimes_legacy_ref_test`로 실행) |
+| `db/migration/` | 구 DB 이관 (설계 §25). `00_config.sql` = 이관 규칙 값, 10~60 = 단계별, `90_verify.sql` = 건수·합계 검증. 원본 = 덤프 복원본 `bbakggum_legacy`, 작업 스키마 `bbakggum_mig` |
+| `db/test/migration_fixture.sql` | 덤프에 없는 이관 경로(출하·마감·부적합·비가동) 시험 데이터 — 개발 복원본 전용 |
 | `docs/reference/` | V2 설계안, 참고 이미지 |
 | `api/` | ASP.NET Core Minimal API (.NET 10 LTS, Dapper, MySqlConnector). 구조·규칙은 설계 §18 |
 | `web/` | React 19 + TypeScript + Vite + **Ant Design 6** + TanStack Query. 구조·규칙은 설계 §19 |
@@ -27,6 +29,8 @@ powershell -ExecutionPolicy Bypass -File db\dev\dev-db.ps1 apply    # bbakggum_v
 powershell -ExecutionPolicy Bypass -File db\dev\dev-db.ps1 smoke    # 재생성 + 스모크 시나리오
 powershell -ExecutionPolicy Bypass -File db\dev\dev-db.ps1 seed     # 재생성 + 화면 확인용 개발 데이터 (생산계획 등)
 powershell -ExecutionPolicy Bypass -File db\dev\dev-db.ps1 stop
+powershell -ExecutionPolicy Bypass -File db\dev\dev-db.ps1 legacy -Dump D:\Programming\ProductManager\MariaDB\backup_260409_3.sql   # 구 덤프 → bbakggum_legacy (이름 바꿔 복원)
+powershell -ExecutionPolicy Bypass -File db\dev\dev-db.ps1 migrate -Fresh   # bbakggum_v2 재생성 + 이관 + 검증 (-Fresh 없으면 이어서 재실행)
 
 dotnet test api                                          # API 테스트 (개발 DB 인스턴스에 bbakggum_v2_test 를 새로 만듦)
 dotnet run --project api\src\JiMes.Api --launch-profile http   # http://localhost:5080 (개발 DB bbakggum_v2)
@@ -82,7 +86,7 @@ npm run lint --prefix web
 | 5 | 기준정보 화면 | **완료 (2026-09-30)** — 설계 V3.13 §22 (범용 14종 + 사용자·역할 + 품목 + 공정·템플릿·작업표준 + 검사기준), §12 확인 ⑧⑨. API 테스트 121건 |
 | 6 | 업무: 수주 → 계획 → 투입 → 검사·성적서 → 부적합·재작업 → 출하·마감 | **완료 (2026-10-01)** — 설계 V3.15~V3.20 §23 (①수주 ②계획 확정·작업지시 ③투입·작업 ④검사·성적서 ⑤부적합·재작업 ⑥출하·마감). API 테스트 139건 |
 | 7 | 조회·대시보드 (LOT 현황, 추적, KPI) | **완료 (2026-10-01)** — 설계 V3.21~V3.23 §24 (①LOT 현황·추적 ②수주 진행·재고 ③대시보드 KPI). API 테스트 142건 |
-| 8 | 구 DB 이관 스크립트·검증·병행운영 | 대기 |
+| 8 | 구 DB 이관 스크립트·검증·병행운영 | **완료 (2026-10-01)** — 설계 V3.24 §25. 2026-04-09 덤프 전 항목 PASS, 병행운영 = 구 → 신규 단방향·일괄 전환 (§12 ⑩~⑬ 확인 필요) |
 
 ### 1단계 진행 방법
 
