@@ -16,5 +16,8 @@ public static class ReportEndpoints
             .RequirePermission(lotKey, PermissionAction.Read);
         g.MapGet("/trace/{mainWorkId:long}", (long mainWorkId, LotReportService s, CancellationToken ct) => s.TraceAsync(mainWorkId, ct))
             .RequirePermission(lotKey, PermissionAction.Read);
+        g.MapGet("/orders", (OrderReportService s, CancellationToken ct, DateOnly? from, DateOnly? to, long? customerId, string? search, string? view) =>
+                s.OrdersAsync(from, to, customerId, search, view, ct))
+            .RequirePermission(MenuKeys.ReportOrder, PermissionAction.Read);
     }
 }

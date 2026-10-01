@@ -1,4 +1,4 @@
-# bbakggum DB 구조개편 설계안 V3.21
+# bbakggum DB 구조개편 설계안 V3.22
 
 | 항목 | 내용 |
 |-|-|
@@ -20,6 +20,7 @@
 | V3.5 | 2026-09-30 | **모든 출력물 = 사용자 엑셀 양식 등록 방식**, 출력 용도 **사용자 확장**(`print_purpose`), 양식 파일 **DB 버전 보관**, 치환자 사전(`print_field`), 출력 이력(`print_log`), **구현 시 주의사항**(§15: 스케줄·진행현황, 엑셀 양식 출력 — 기존 소스 분석), 기존 DB 보존 + 신규 구축 원칙 명시 |
 | V3.6 | 2026-09-30 | 양식 등록 방식 **2가지**: EXCEL(사용자 수정 양식) + **FIXED**(코드 고정 레이아웃 — 거래명세표 등 구 PrintDoc 7종, 레이아웃 옵션은 관리자 조정), **하드코딩 → 관리자 설정**(§15.4, `system_setting` 확장·초기값, 로직 참조 공통코드, 단말별 프린터 `workstation_print_setting`, 도장 이미지 DB 보관) |
 | V3.8 | 2026-09-30 | **1단계 기존 폼 분석 반영** (`docs/legacy_forms/`): 입고번호 = 스캔 수주번호(`order_item_no`), 수주 행 요구사항 Snapshot·우선순위·별도관리·고객 작업지시번호, 품목 단가 적용 구분(EA/KG/CHARGE), 설비당 투입 중 작업 1건, 한 LOT에 같은 수주 1회, 관리항목 템플릿(`step_template_condition`), 검사구분(입고/공정/출하)·재검사·**검사 결과 공통 적용**, 부적합 처리구분(재처리/출하/선별/보류/폐기/반송), 출하 시험편·거래처 Snapshot·전표 단위 마감 상태(미마감/마감/이월), 공통 첨부(`attachment`), 설정·공통코드 추가. 배정 병합 시 최대 작업시간, 지연 시 뒤 배정 계획시각 자동 이동 |
+| V3.22 | 2026-10-01 | **7단계 ② 수주 진행·재고** (§24.2, 구 F_OrderStatus·F_InventoryForm·F_OutcomeStatus): 입고 행별 경로 순 단위공정 투입/양품, 미투입·미처리 부적합·재고(출하 가능)·출하·출하 잔량·금액, 보기(미출하·재고 있음·미투입·전체). 메뉴 `report.order` |
 | V3.21 | 2026-10-01 | **7단계 ① LOT 현황·추적** (§24.1, 구 F_WorkHistoryForm·F_ProductionStatus): LOT 현황(vw_work_lot_status + 수주·품목·거래처 요약), 추적 = 어떤 번호(LOT·제출 LOT·입고번호)든 주 LOT 으로 바꿔 전공정·후공정·재작업·검사·부적합·출하를 모음. 메뉴 `report.lot` |
 | V3.20 | 2026-10-01 | **6단계 ⑥ 출하·마감** (§23.7, 구 F_OutAddForm·F_OutForm·F_MonthlyClosing): 출하 재고 = 수주 × 주 LOT 출하 가능(부적합·특채·기출하·시험편 반영), 전표 등록·수정·취소, 단가 구분별 금액(EA/KG/CHARGE)·세액, 거래처 Snapshot, 거래명세표 발행(출하 화면 권한), 업체별 마감(기준일 = 마감일 말일 보정)·이월·마감 취소. 설정 `shipment_closing.number_format`, 공통코드 `CLOSING_STATUS` 색·`CLOSING_RUN_STATUS`, 메뉴 `sales.shipment`·`sales.closing`. **6단계 완료** |
 | V3.19 | 2026-10-01 | **6단계 ⑤ 부적합·재작업** (§23.6, 구 F_Defect·F_DefectAdd): 작업 화면 투입 행 불량 등록(양품 한도), 부적합 목록·판정(처리구분 `DEFECT_ACTION`)·완료·취소, 재처리 → 재작업 LOT(원 LOT 연결, 주공정이면 주 LOT = 자신) → 재작업 LOT 완료 시 부적합 자동 완료. DDL: `defect_occurrence.remark`, 공통코드 `DEFECT_STATUS`, 메뉴 `quality.defect` |
@@ -1159,7 +1160,7 @@ POST /api/print/issue {purposeCode, sourceId, printTemplateId?}
 | 순서 | 범위 | 상태 |
 |-|-|-|
 | 7-① | LOT 현황·추적 | V3.21 완료 |
-| 7-② | 수주 진행·재고 현황 | 대기 |
+| 7-② | 수주 진행·재고 현황 | V3.22 완료 |
 | 7-③ | 대시보드 KPI | 대기 |
 
 ## 24.1 LOT 현황·추적 — 7-① (구 F_WorkHistoryForm · F_ProductionStatus)
@@ -1174,3 +1175,15 @@ POST /api/print/issue {purposeCode, sourceId, printTemplateId?}
 
 - 정밀도는 §3.4 그대로: 전공정만 수주 단위(같은 수주가 여러 주 LOT 으로 나뉘면 전공정 LOT 이 양쪽에 보임), 나머지는 정확.
 - 현황 목록은 `schedule.refresh_interval_sec` 주기로 다시 읽는다.
+
+## 24.2 수주 진행·재고 — 7-② (구 F_OrderStatus · F_InventoryForm · F_OutcomeStatus)
+
+화면 **조회 > 수주 진행·재고** (`report.order`), API `GET /api/reports/orders?from&to&customerId&search&view` (`view` = OPEN 미출하 / STOCK 재고 있음 / NOT_INPUT 미투입 / 없음 = 전체).
+
+| 컬럼 | 계산 (저장형 잔량 없음 §1.2) |
+|-|-|
+| 공정 진행 | 수주 공정 경로 순 단위공정마다 투입·양품·LOT 수 = `vw_sales_order_item_process_progress` (재작업 제외). *= 주공정 |
+| 미투입 | 수주 − 주공정 투입 |
+| 미처리 부적합 | 미결정·결정·재작업 중 부적합 수량 |
+| 재고 | 주 LOT 투입 − 부적합(특채 '출하' 제외, 후공정 포함) − 출하 − 시험편 = **출하 화면 재고와 같은 기준** (구 F_InventoryForm 의 입고 − 출하 − 시험편은 작업 전 수량도 재고로 셌음) |
+| 출하 / 출하 잔량 / 출하 금액 | 취소 안 된 전표 합 / 수주 − 출하 − 시험편 / 행 금액 합 |

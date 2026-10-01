@@ -17,6 +17,7 @@ export const pageRegistry: Record<string, Page> = {
   'sales.shipment': lazy(() => import('./sales/ShipmentsPage')),
   'sales.closing': lazy(() => import('./sales/ClosingsPage')),
   'report.lot': lazy(() => import('./report/LotsPage')),
+  'report.order': lazy(() => import('./report/OrdersReportPage')),
   'production.schedule': lazy(() => import('./production/SchedulePage')),
   'production.work': lazy(() => import('./production/WorksPage')),
   'quality.inspection': lazy(() => import('./quality/InspectionsPage')),

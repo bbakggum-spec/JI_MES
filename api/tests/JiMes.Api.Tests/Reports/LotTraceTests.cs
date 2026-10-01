@@ -111,6 +111,15 @@ public sealed class LotTraceTests(ApiFixture fx) : IAsyncLifetime
         Assert.Equal((1L, 50m), (row.GetProperty("postLotCount").GetInt64(), row.GetProperty("shipmentQty").GetDecimal()));
         Assert.DoesNotContain(lots.EnumerateArray(), x => x.GetProperty("lotNo").GetString() == temperLot);
 
+        // 수주 진행: 경로 순 단위공정 투입·양품 (재작업 제외), 재고 = 주 LOT 양품(재작업 LOT 포함) − 출하
+        var order = (await _client.GetFromJsonAsync<JsonElement>($"/api/reports/orders?search={_itemNo}"))[0];
+        Assert.Equal(["세척:100:100", "침탄:100:90", "템퍼링:80:80"], order.GetProperty("processes").EnumerateArray()
+            .Select(p => $"{p.GetProperty("unitProcessName").GetString()}:{p.GetProperty("inputQty").GetDecimal():0}:{p.GetProperty("goodQty").GetDecimal():0}"));
+        Assert.Equal((100m, 50m, 50m, 0m), (order.GetProperty("mainInputQty").GetDecimal(), order.GetProperty("shipmentQty").GetDecimal(),
+            order.GetProperty("stockQty").GetDecimal(), order.GetProperty("notInputQty").GetDecimal()));
+        Assert.Equal(1, (await _client.GetFromJsonAsync<JsonElement>($"/api/reports/orders?search={_itemNo}&view=STOCK")).GetArrayLength());
+        Assert.Equal(0, (await _client.GetFromJsonAsync<JsonElement>($"/api/reports/orders?search={_itemNo}&view=NOT_INPUT")).GetArrayLength());
+
         Assert.Equal("TRACE_NOT_FOUND", (await (await _client.GetAsync("/api/reports/trace/resolve?code=NOPE")).Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
     }
 
