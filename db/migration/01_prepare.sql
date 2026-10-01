@@ -83,15 +83,12 @@ CREATE OR REPLACE FUNCTION bbakggum_mig.price_basis(u VARCHAR(50)) RETURNS VARCH
              WHERE g.group_code = 'PRICE_BASIS' AND LOWER(JSON_VALUE(c.attr_json, '$.legacy')) = LOWER(TRIM(u)) LIMIT 1)$$
 DELIMITER ;
 
--- 주공정 단위공정 (설정 main_unit_processes, 비었으면 구 작업표준·단계 템플릿이 있는 단위공정)
+-- 주공정 단위공정 (설정 main_unit_processes). 주공정은 신규에서 도입한 개념 — 구 데이터에서 추정하지 않으므로 기본은 비어 있음 (설계 §12 ⑪)
 CREATE OR REPLACE TABLE bbakggum_mig.main_unit_process (unit_process_name VARCHAR(50) NOT NULL PRIMARY KEY) ENGINE=InnoDB;
 INSERT INTO bbakggum_mig.main_unit_process (unit_process_name)
 SELECT DISTINCT TRIM(u.unitprocessname)
   FROM bbakggum_legacy.t_unitprocess u
- WHERE IF(bbakggum_mig.cfg('main_unit_processes') = '',
-          TRIM(u.unitprocessname) IN (SELECT TRIM(unitprocessname) FROM bbakggum_legacy.t_standard
-                                      UNION SELECT TRIM(unitprocessname) FROM bbakggum_legacy.t_standardtemplate),
-          FIND_IN_SET(TRIM(u.unitprocessname), REPLACE(bbakggum_mig.cfg('main_unit_processes'), ', ', ',')) > 0);
+ WHERE FIND_IN_SET(TRIM(u.unitprocessname), REPLACE(bbakggum_mig.cfg('main_unit_processes'), ', ', ',')) > 0;
 
 -- 구 이름 참조 → 신규 id (10_master 가 채움, 이후 단계가 사용)
 CREATE TABLE IF NOT EXISTS bbakggum_mig.unit_process_by_name (unit_process_name VARCHAR(100) NOT NULL PRIMARY KEY, unit_process_id BIGINT UNSIGNED NOT NULL) ENGINE=InnoDB;

@@ -14,6 +14,15 @@ public sealed record IssueRequest(string PurposeCode, long SourceId, long? Print
 
 public sealed record PrintResult(long PrintLogId, string FileName, string ContentType, byte[] Content);
 
+/// <summary>발행 화면의 양식 선택 콤보 항목 (사용 중 + 현재 버전 있는 양식만)</summary>
+public sealed class TemplateChoice
+{
+    public long PrintTemplateId { get; init; }
+    public string PrintTemplateName { get; init; } = "";
+    public string TemplateKind { get; init; } = "";
+    public bool IsDefault { get; init; }
+}
+
 /// <summary>
 /// 출력 발행의 유일한 경로 (§15.2 P1 — 구 네 갈래 엔진을 EXCEL / FIXED 두 방식으로).
 /// 양식 선택 → 데이터 공급원 → 렌더링(EXCEL 채우기 → PDF, FIXED 렌더러) → print_log(버전·치환값 Snapshot·발행본) → 원본 반영.
@@ -48,6 +57,21 @@ public sealed class PrintService(
         t.print_template_id, v.print_template_version_id, t.print_purpose_id, t.template_kind, t.renderer_key, t.output_format,
         v.file_content, v.layout_options_json
         """;
+
+    /// <summary>용도의 발행 가능 양식 (기본 양식 먼저) — 발행 화면에서 기본 외 양식(예: 업체 전용 엑셀 양식)으로 바꿔 출력</summary>
+    public async Task<IEnumerable<TemplateChoice>> ChoicesAsync(string purposeCode, CancellationToken ct)
+    {
+        await using var conn = await db.OpenAsync(ct);
+        return await conn.QueryAsync<TemplateChoice>(
+            """
+            SELECT t.print_template_id, t.print_template_name, t.template_kind, t.is_default
+              FROM print_template t
+              JOIN print_purpose p ON p.print_purpose_id = t.print_purpose_id
+             WHERE p.purpose_code = @purposeCode AND t.is_active = 1
+               AND EXISTS (SELECT 1 FROM print_template_version v WHERE v.print_template_id = t.print_template_id AND v.is_current = 1)
+             ORDER BY t.is_default DESC, t.print_template_name
+            """, new { purposeCode });
+    }
 
     public async Task<PrintResult> IssueAsync(IssueRequest request, CancellationToken ct)
     {

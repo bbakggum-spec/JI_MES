@@ -170,9 +170,8 @@ CALL bbakggum_mig.verify_sum('검사기준 항목 수',
     (SELECT COUNT(*) FROM bbakggum_legacy.t_inspectioncriteria c
        JOIN migration_id_map m ON m.legacy_table = 't_inspectioncriteria' AND m.legacy_key = CONCAT(c.partid, '|', IFNULL(c.customerid, 0)) AND m.new_table = 'inspection_standard'),
     (SELECT COUNT(*) FROM migration_id_map WHERE legacy_table = 't_inspectioncriteria' AND new_table = 'inspection_criteria'), NULL);
--- 품목 ↔ 거래처 연결: 연결 못 한 품목 수 = 문제 목록의 거래처 없음
-CALL bbakggum_mig.verify_sum('거래처 연결 안 된 품목',
-    (SELECT COUNT(*) FROM bbakggum_mig.issue WHERE legacy_table = 't_part' AND issue_code = 'REF_MISSING' AND detail LIKE '거래처 없음%'),
+-- 품목 ↔ 거래처: 이관한 품목은 모두 거래처가 있어야 함 (거래처 없는 구 품목은 제외 — §12 ⑫)
+CALL bbakggum_mig.verify_sum('거래처 연결 안 된 품목', 0,
     (SELECT COUNT(*) FROM part p JOIN migration_id_map m ON m.new_table = 'part' AND m.new_id = p.part_id AND m.legacy_table = 't_part'
       WHERE NOT EXISTS (SELECT 1 FROM part_customer pc WHERE pc.part_id = p.part_id)), NULL);
 

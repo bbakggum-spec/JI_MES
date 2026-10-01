@@ -217,17 +217,22 @@ SELECT CAST(p.partid AS CHAR(200)) AS lk, p.partid, m.new_id, bbakggum_mig.code(
        NULLIF(TRIM(p.texture), '') AS texture, NULLIF(TRIM(p.remark), '') AS remark,
        IF(TRIM(p.isuse) IN ('0', 'N', 'n', 'false', '미사용'), 0, 1) AS is_active, COALESCE(p.createat, NOW()) AS created_at,
        p.customerid, NULLIF(TRIM(p.customername), '') AS customer_name, NULLIF(TRIM(p.customercode), '') AS customer_part_code,
-       p.heatprocessid, NULLIF(TRIM(p.heatprocessname), '') AS heat_process_name
+       p.heatprocessid, NULLIF(TRIM(p.heatprocessname), '') AS heat_process_name, mc.new_id AS customer_id
   FROM bbakggum_legacy.t_part p
-  LEFT JOIN migration_id_map m ON m.legacy_table = 't_part' AND m.legacy_key = CAST(p.partid AS CHAR) AND m.new_table = 'part';
+  LEFT JOIN migration_id_map m ON m.legacy_table = 't_part' AND m.legacy_key = CAST(p.partid AS CHAR) AND m.new_table = 'part'
+  LEFT JOIN migration_id_map mc ON mc.legacy_table = 't_customer' AND mc.legacy_key = CAST(p.customerid AS CHAR) AND mc.new_table = 'customer';
+-- 구 customerid 가 거래처에 없는 품목 = 삭제된 거래처의 품목 → 이관 안 함 (필요하면 신규에서 등록, 설계 §12 ⑫)
+INSERT INTO bbakggum_mig.issue (step, legacy_table, legacy_key, issue_code, detail)
+SELECT 'master', 't_part', lk, 'SKIPPED', CONCAT('거래처 없음 (구 customerid ', IFNULL(customerid, '-'), ', "', IFNULL(customer_name, ''), '") — 이관 안 함')
+  FROM s_part WHERE new_id IS NULL AND customer_id IS NULL;
 
 INSERT INTO part (part_code, part_name, part_number, specification, model, material, unit_weight, unit_code, price_basis, unit_price,
                   drawing_no, hardness, core_hardness, effective_hardening_depth, texture, remark, is_active, created_at)
 SELECT part_code, part_name, part_number, specification, model, material, unit_weight, unit_code, price_basis, unit_price,
        drawing_no, hardness, core_hardness, effective_hardening_depth, texture, remark, is_active, created_at
-  FROM s_part WHERE new_id IS NULL;
+  FROM s_part WHERE new_id IS NULL AND customer_id IS NOT NULL;
 INSERT INTO migration_id_map (legacy_table, legacy_key, new_table, new_id)
-SELECT 't_part', s.lk, 'part', n.part_id FROM s_part s JOIN part n ON n.part_code = s.part_code WHERE s.new_id IS NULL;
+SELECT 't_part', s.lk, 'part', n.part_id FROM s_part s JOIN part n ON n.part_code = s.part_code WHERE s.new_id IS NULL AND s.customer_id IS NOT NULL;
 UPDATE s_part s JOIN migration_id_map m ON m.legacy_table = 't_part' AND m.legacy_key = s.lk AND m.new_table = 'part' SET s.new_id = m.new_id WHERE s.new_id IS NULL;
 UPDATE part n JOIN s_part s ON s.new_id = n.part_id
    SET n.part_name = s.part_name, n.part_number = s.part_number, n.specification = s.specification, n.model = s.model, n.material = s.material,
@@ -237,28 +242,12 @@ UPDATE part n JOIN s_part s ON s.new_id = n.part_id
 INSERT INTO bbakggum_mig.issue (step, legacy_table, legacy_key, issue_code, detail)
 SELECT 'master', 't_part', lk, 'CODE_UNMATCHED', CONCAT('단가 구분 "', legacy_unit, '" → EA') FROM s_part WHERE basis_unmatched AND NULLIF(TRIM(legacy_unit), '') IS NOT NULL;
 
--- 품목-거래처: 구 customerid → 없으면 같은 이름 거래처가 하나뿐일 때 이름으로
-CREATE TEMPORARY TABLE s_customer_by_name (PRIMARY KEY (customer_name)) AS
-SELECT TRIM(customername) AS customer_name, MIN(customerid) AS customerid FROM bbakggum_legacy.t_customer
- WHERE NULLIF(TRIM(customername), '') IS NOT NULL GROUP BY TRIM(customername) HAVING COUNT(*) = 1;
-CREATE TEMPORARY TABLE s_part_customer (PRIMARY KEY (lk)) AS
-SELECT s.lk, s.new_id AS part_id, s.customer_part_code, s.customerid AS legacy_customerid, s.customer_name,
-       COALESCE(mc.new_id, mn.new_id) AS customer_id, mc.new_id IS NULL AND mn.new_id IS NOT NULL AS by_name
-  FROM s_part s
-  LEFT JOIN migration_id_map mc ON mc.legacy_table = 't_customer' AND mc.legacy_key = CAST(s.customerid AS CHAR) AND mc.new_table = 'customer'
-  LEFT JOIN s_customer_by_name cn ON cn.customer_name = s.customer_name
-  LEFT JOIN migration_id_map mn ON mn.legacy_table = 't_customer' AND mn.legacy_key = CAST(cn.customerid AS CHAR) AND mn.new_table = 'customer';
-UPDATE part_customer x JOIN s_part_customer s ON s.part_id = x.part_id
-   SET x.is_primary = 0 WHERE x.customer_id <> COALESCE(s.customer_id, 0);
+-- 품목-거래처 (구 품목 1행 = 거래처 1곳 → 주 거래처)
+UPDATE part_customer x JOIN s_part s ON s.new_id = x.part_id
+   SET x.is_primary = 0 WHERE x.customer_id <> s.customer_id;
 INSERT INTO part_customer (part_id, customer_id, customer_part_code, is_primary)
-SELECT part_id, customer_id, customer_part_code, 1 FROM s_part_customer WHERE customer_id IS NOT NULL
+SELECT new_id, customer_id, customer_part_code, 1 FROM s_part WHERE new_id IS NOT NULL AND customer_id IS NOT NULL
 ON DUPLICATE KEY UPDATE customer_part_code = VALUES(customer_part_code), is_primary = 1;
-INSERT INTO bbakggum_mig.issue (step, legacy_table, legacy_key, issue_code, detail)
-SELECT 'master', 't_part', lk, 'REF_BY_NAME', CONCAT('구 customerid ', IFNULL(legacy_customerid, '-'), ' 없음 → 이름 "', customer_name, '" 으로 연결')
-  FROM s_part_customer WHERE by_name;
-INSERT INTO bbakggum_mig.issue (step, legacy_table, legacy_key, issue_code, detail)
-SELECT 'master', 't_part', lk, 'REF_MISSING', CONCAT('거래처 없음 (구 customerid ', IFNULL(legacy_customerid, '-'), ', "', IFNULL(customer_name, ''), '") — 품목만 이관, 거래처 연결 안 함')
-  FROM s_part_customer WHERE customer_id IS NULL;
 
 -- 품목 기본 공정: 구 heatprocessid → 없으면 이름이 같은 공정이 하나뿐일 때 이름으로
 CREATE TEMPORARY TABLE s_hp_by_name (PRIMARY KEY (heat_process_name)) AS
@@ -271,7 +260,7 @@ SELECT s.lk, s.new_id AS part_id, s.heatprocessid AS legacy_hp, s.heat_process_n
   LEFT JOIN migration_id_map mh ON mh.legacy_table = 't_heatprocess' AND mh.legacy_key = CAST(s.heatprocessid AS CHAR) AND mh.new_table = 'heat_process'
   LEFT JOIN s_hp_by_name hn ON hn.heat_process_name = s.heat_process_name
   LEFT JOIN migration_id_map mn ON mn.legacy_table = 't_heatprocess' AND mn.legacy_key = CAST(hn.heatprocessid AS CHAR) AND mn.new_table = 'heat_process'
- WHERE COALESCE(s.heatprocessid, 0) <> 0 OR s.heat_process_name IS NOT NULL;
+ WHERE s.new_id IS NOT NULL AND (COALESCE(s.heatprocessid, 0) <> 0 OR s.heat_process_name IS NOT NULL);
 UPDATE part_heat_process x JOIN s_part_hp s ON s.part_id = x.part_id
    SET x.is_default = 0 WHERE x.heat_process_id <> COALESCE(s.heat_process_id, 0);
 INSERT INTO part_heat_process (part_id, heat_process_id, is_default)

@@ -32,8 +32,9 @@ INSERT INTO bbakggum_mig.config (config_key, config_value, description) VALUES
  ('closing_no_prefix',         'MIGCL', '마감번호 = 접두 + yyyyMM + "-" + 구 customerid (구 마감완료 전표의 업체·마감월 묶음)'),
  -- 공통코드 표시명과 맞지 않는 구 거래처 구분 (예: 비매출처)
  ('customer_type_unmatched',   'PURCHASE', '구 customertype 이 CUSTOMER_TYPE 표시명과 다를 때 넣을 코드 (문제 목록에 기록)'),
- -- 주공정 단위공정 이름 (쉼표 구분). 빈 값 = 구 작업표준·단계 템플릿이 있는 단위공정 (구 F_GasForm 에서 표준 확정하던 공정)
- ('main_unit_processes',       '',    '주공정 LOT 판정 — 주공정 투입 행은 main_work_id = 자신'),
+ -- 주공정 단위공정 이름 (쉼표 구분). 주공정은 신규 개념이라 구 데이터에는 없음 → 기본 빈 값 = 이관 LOT 은 모두 주공정 아님
+ -- (주 LOT 추적은 전환 후 신규 공정 경로 등록부터, 설계 §12 ⑪)
+ ('main_unit_processes',       '',    '주공정 LOT 판정 — 지정하면 그 단위공정 투입 행은 main_work_id = 자신'),
  -- 구 작업표준·작업조건 표에서 단계 이름을 담은 행의 item 값 (나머지 행 = 관리항목)
  ('step_row_item',             '스텝', 't_standarddetail / t_workconditiondetail 의 단계 이름 행'),
  -- 구 검사기준 판정 방식 문자열 (F_InspectionCriteriaForm cmbRangeType) → RANGE_TYPE 코드. 빈 값이면 상·하한 유무로 정함

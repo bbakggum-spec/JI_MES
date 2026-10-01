@@ -263,6 +263,35 @@ public sealed class PrintApiTests(ApiFixture fx) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Shipment_slip_can_be_issued_with_a_chosen_excel_template()
+    {
+        byte[] slipFile;
+        using (var wb = new XLWorkbook())
+        {
+            wb.AddWorksheet("명세표").Cell("A1").Value = "{{ShipmentNo}}";
+            using var ms = new MemoryStream();
+            wb.SaveAs(ms);
+            slipFile = ms.ToArray();
+        }
+        var custom = await CreateExcelTemplateAsync("SHIPMENT_SLIP", "XLSX", slipFile, $"업체전용-{Guid.NewGuid():N}"[..16]);
+
+        // 콤보 목록: 기본 양식(당사 FIXED) 먼저, 등록한 엑셀 양식 포함
+        var choices = await _client.GetFromJsonAsync<JsonElement>("/api/shipments/slip-templates");
+        Assert.True(choices[0].GetProperty("isDefault").GetBoolean());
+        Assert.Contains(choices.EnumerateArray(), c => c.GetProperty("printTemplateId").GetInt64() == custom);
+
+        var res = await _client.PostAsync($"/api/shipments/{_s.ShipmentId}/slip?printTemplateId={custom}", null);
+        Assert.True(res.IsSuccessStatusCode, await res.Content.ReadAsStringAsync());
+        using (var wb = new XLWorkbook(new MemoryStream(await res.Content.ReadAsByteArrayAsync())))
+            Assert.False(string.IsNullOrEmpty(wb.Worksheet("명세표").Cell("A1").GetString()));
+
+        // 다른 용도 양식은 거부
+        var other = await CreateExcelTemplateAsync("INSPECTION_REPORT", "XLSX", ReportTemplate());
+        var wrong = await _client.PostAsync($"/api/shipments/{_s.ShipmentId}/slip?printTemplateId={other}", null);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, wrong.StatusCode);
+    }
+
+    [Fact]
     public async Task Fixed_options_save_new_version_and_validate_json()
     {
         await using var c = await fx.OpenAsync();
